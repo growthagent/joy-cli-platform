@@ -66,13 +66,6 @@ and acknowledges it with `Signal.poll!()` before cleaning up. Without
 `catch!`, Ctrl-C ends the process, leashed children with it, and the terminal
 is restored.
 
-## Status
-
-The targets are Linux (x64 and arm64, musl) and macOS (x64 and arm64), built
-against Roc 0c440e5, Joy's pin. Linux x64 is built and tested. On macOS,
-`Watch` uses kqueue, so the host needs no system frameworks. Windows is not a
-target yet.
-
 ## Development
 
 The Nix shell has the pinned Roc, Rust, Zig and Python:
