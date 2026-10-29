@@ -1,0 +1,144 @@
+name: "Setup pinned Roc"
+description: >-
+  Build and install the exact Roc compiler commit that flake.nix pins (the
+  locked roc-src input in flake.lock), so CI uses the same compiler as the
+  devshell. Used instead of roc-lang/setup-roc because the published nightlies
+  lag roc main by up to a day, so a platform tracking a fresh compiler change
+  cannot be built until the next nightly exists. Works on Linux, macOS and
+  Windows.
+
+inputs:
+  zig-version:
+    description: "Zig version used to build the compiler."
+    required: false
+    default: "0.17.0"
+
+runs:
+  using: composite
+  steps:
+    # flake.lock is the single source of truth for the compiler. Bump it with
+    # `nix flake lock` after changing the roc-src url in flake.nix.
+    - name: Read pinned Roc commit
+      id: pin
+      shell: bash
+      run: |
+        set -euo pipefail
+        sha=$(jq -r '.nodes["roc-src"].locked.rev' flake.lock)
+        if [ -z "$sha" ] || [ "$sha" = "null" ]; then
+          echo "flake.lock has no locked roc-src revision" >&2
+          exit 1
+        fi
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+    # A build takes 12-41 minutes depending on the runner (the Intel macOS
+    # runners are the slowest), so cache the result. The key covers the commit
+    # and the runner, and the compiler is immutable for a given commit, so a hit
+    # is always safe to reuse. Restore and save are separate steps so the cache
+    # is written as soon as the compiler is built. With a plain actions/cache
+    # the save only runs when the whole job succeeds, so a job that failed or
+    # timed out later threw a finished 41 minute build away.
+    - name: Restore cached Roc
+      id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: .roc-bin
+        key: roc-${{ runner.os }}-${{ runner.arch }}-${{ steps.pin.outputs.sha }}
+
+    - name: Put Roc on PATH
+      shell: bash
+      run: echo "$GITHUB_WORKSPACE/.roc-bin" >> "$GITHUB_PATH"
+
+    - name: Checkout roc-lang/roc at the pinned commit
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/checkout@v7
+      with:
+        repository: roc-lang/roc
+        ref: ${{ steps.pin.outputs.sha }}
+        path: .roc-src
+
+    - name: Install Zig
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f
+      with:
+        version: ${{ inputs.zig-version }}
+        use-cache: true
+
+    # Mirrors the workaround in roc-lang/nightlies: a stray llvm-config on the
+    # arm64 Linux images gets picked up and breaks the build.
+    - name: Remove conflicting llvm-config
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Linux' && runner.arch == 'ARM64'
+      shell: bash
+      run: sudo rm -f /usr/lib/llvm-18/bin/llvm-config
+
+    # Fetching the Zig dependency tarballs is flaky enough that roc-lang/roc
+    # wraps this same command in a retry action, so retry here too.
+    - name: Build Roc
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      shell: bash
+      working-directory: .roc-src
+      run: |
+        set -euo pipefail
+        for attempt in 1 2 3; do
+          if zig build build-release; then
+            exit 0
+          fi
+          echo "Roc build attempt $attempt failed"
+          sleep 15
+        done
+        echo "Roc build failed after 3 attempts" >&2
+        exit 1
+
+    # Building the compiler on Windows needs the MSVC environment, so load it
+    # with vcvars inside this one step. Do NOT use msvc-dev-cmd here: it exports
+    # the environment to every later step of the job, and its VCINSTALLDIR tells
+    # rustc it is already inside a Visual Studio shell, so rustc takes the first
+    # `link.exe` on PATH instead of locating MSVC itself. That was Git Bash's
+    # coreutils `link`, and every later `cargo build` failed with
+    # "extra operand". Only jobs that missed the cache hit it.
+    - name: Build Roc (Windows)
+      if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      shell: cmd
+      working-directory: .roc-src
+      run: |
+        set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+        for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -property installationPath`) do set "VSPATH=%%i"
+        if not defined VSPATH (echo Visual Studio not found & exit /b 1)
+        call "%VSPATH%\VC\Auxiliary\Build\${{ runner.arch == 'ARM64' && 'vcvarsarm64.bat' || 'vcvars64.bat' }}" || exit /b 1
+        set attempt=0
+        :retry
+        set /a attempt+=1
+        zig build build-release && exit /b 0
+        if %attempt% GEQ 3 (echo Roc build failed after 3 attempts & exit /b 1)
+        echo Roc build attempt %attempt% failed
+        powershell -NoProfile -Command "Start-Sleep -Seconds 15"
+        goto retry
+
+    # Lay the binary out the way the published nightlies do. On macOS the
+    # compiler looks for a 'darwin' sysroot directory next to the executable
+    # and only falls back to a compile-time path, which would not exist on a
+    # later cache hit, so the sysroot has to be cached alongside the binary.
+    - name: Assemble Roc directory
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p .roc-bin
+        cp .roc-src/zig-out/bin/roc* .roc-bin/
+        if [ "$RUNNER_OS" = "macOS" ]; then
+          cp -r .roc-src/src/cli/darwin .roc-bin/
+        fi
+        # The compiler checkout contains its own .roc sources and would
+        # otherwise sit inside this repo's workspace, where the build and test
+        # scripts run. Drop it once the binary has been extracted.
+        rm -rf .roc-src
+
+    - name: Save Roc to the cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: .roc-bin
+        key: ${{ steps.cache.outputs.cache-primary-key }}
+
+    - name: Show Roc version
+      shell: bash
+      run: roc --version

@@ -1,0 +1,1512 @@
+//! Rust-owned process supervision. No Roc allocations cross the service boundary.
+use process_wrap::tokio::*;
+use std::{
+    collections::VecDeque,
+    io,
+    process::Stdio,
+    sync::{Arc, Condvar, Mutex, OnceLock, Weak},
+    time::{Duration, Instant},
+};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    sync::{Mutex as AsyncMutex, Notify},
+};
+
+/// How a child ended. A signal is reported on Unix only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    Exited(i32),
+    #[cfg_attr(not(unix), allow(dead_code))]
+    Signaled(i32),
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Output {
+    pub status: Status,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+/// Output captured before a deadline or a limit stopped the command.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Partial {
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+/// Why a command did not start or did not run to completion.
+#[derive(Debug)]
+pub enum Error {
+    /// A caught application interrupt canceled this operation.
+    Interrupted,
+    /// No process exists: the program, its pipes or its supervisor failed.
+    Start(io::Error),
+    /// The command's own deadline expired and it was killed.
+    TimedOut(Partial),
+    /// A capture or pending-output limit was exceeded and it was killed.
+    OutputLimitExceeded(Partial),
+    /// An operating-system failure while the command ran, or an expired wait
+    /// of one `read` or `write` (`io::ErrorKind::TimedOut`).
+    Io(io::Error),
+}
+/// A failed operation on a child handle.
+#[derive(Debug)]
+pub enum ChildError {
+    /// The handle was closed with `close`.
+    Closed,
+    Cmd(Error),
+}
+impl From<Error> for ChildError {
+    fn from(error: Error) -> Self {
+        ChildError::Cmd(error)
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stream {
+    Stdout,
+    Stderr,
+}
+#[derive(Clone, Debug)]
+pub struct Event {
+    pub stream: Stream,
+    pub bytes: Vec<u8>,
+}
+pub enum StdinMode {
+    Inherit,
+    Null,
+    /// Written to the child and closed by the supervisor.
+    Bytes(Vec<u8>),
+    /// Written with `Child::write` and closed with `Child::close_stdin`.
+    Pipe,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputMode {
+    Inherit,
+    /// Inherit the parent's standard error without capturing output.
+    InheritStderr,
+    /// Write through a file descriptor installed before spawning.
+    File,
+    Null,
+    Capture,
+    /// Captured and forwarded to the parent's stream.
+    Tee,
+    /// Queued as events for `Child::read`.
+    Pipe,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StderrMode {
+    Separate(OutputMode),
+    /// Share stdout's OS pipe, mode and budget; reported as stdout.
+    MergeWithStdout,
+}
+pub struct Config {
+    pub command: std::process::Command,
+    pub stdin: StdinMode,
+    pub stdout: OutputMode,
+    pub stderr: StderrMode,
+    pub stdout_file: Option<std::fs::File>,
+    pub stderr_file: Option<std::fs::File>,
+    /// `None` is no deadline; zero expires immediately.
+    pub timeout: Option<Duration>,
+    /// Combined capture budget; `None` is unlimited.
+    pub output_limit: Option<usize>,
+    pub pending_limit: usize,
+    pub manage_tree: bool,
+    /// Unix only: fork a watchdog that founds the child's group and kills it
+    /// if this host dies without cleanup (Ctrl+C, crash, kill -9). Implies
+    /// `manage_tree`. On Windows the Job Object already dies with the host, so
+    /// this is ignored there. See [`crate::leash`].
+    pub leash: bool,
+}
+/// What stopped a command before it finished on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stop {
+    TimedOut,
+    OutputLimit,
+}
+struct State {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    status: Status,
+    events: VecDeque<Event>,
+    pending: usize,
+    done: bool,
+    stop: Option<Stop>,
+    error: Option<(io::ErrorKind, String)>,
+    /// The error is from reaping the process, not from one of its pipes.
+    reap_failed: bool,
+}
+struct Shared {
+    forwarding: crate::native_stdio::Owner,
+    state: Mutex<State>,
+    changed: Condvar,
+    cancel: Notify,
+}
+pub struct Child {
+    pid: u32,
+    shared: Arc<Shared>,
+    stdin: Arc<AsyncMutex<Option<tokio::process::ChildStdin>>>,
+    closed: Mutex<bool>,
+    /// Held for a leashed child so the last reference release (in compiled Roc
+    /// or the exit sweep) closes the watchdog's liveness pipe and takes the
+    /// group down. Never read. Unix only.
+    #[cfg(unix)]
+    _watchdog: Option<crate::leash::Watchdog>,
+}
+fn registry() -> &'static Mutex<Vec<Weak<Shared>>> {
+    static REGISTRY: OnceLock<Mutex<Vec<Weak<Shared>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(Vec::new()))
+}
+/// Terminate and reap children before the host exits normally.
+pub fn shutdown() {
+    let children: Vec<_> = registry()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(Weak::upgrade)
+        .collect();
+    for child in &children {
+        child.cancel.notify_one();
+    }
+    for child in children {
+        let mut state = child.state.lock().unwrap();
+        while !state.done {
+            state = child.changed.wait(state).unwrap();
+        }
+    }
+}
+fn service() -> &'static tokio::runtime::Handle {
+    static HANDLE: OnceLock<tokio::runtime::Handle> = OnceLock::new();
+    HANDLE.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("roc-process-service".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("process runtime");
+                tx.send(runtime.handle().clone()).unwrap();
+                runtime.block_on(std::future::pending::<()>());
+            })
+            .expect("process service thread");
+        rx.recv().unwrap()
+    })
+}
+fn sync_task<T: Send + 'static>(
+    future: impl std::future::Future<Output = T> + Send + 'static,
+) -> T {
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    service().spawn(async move {
+        let value = future.await;
+        let _ = tx.send(value);
+    });
+    rx.recv().expect("process task stopped")
+}
+fn output_stdio(mode: OutputMode) -> Stdio {
+    match mode {
+        OutputMode::Inherit => Stdio::inherit(),
+        OutputMode::InheritStderr => Stdio::from(std::io::stderr()),
+        OutputMode::Null | OutputMode::File => Stdio::null(),
+        OutputMode::Capture | OutputMode::Tee | OutputMode::Pipe => Stdio::piped(),
+    }
+}
+fn stored_error(error: &(io::ErrorKind, String)) -> io::Error {
+    io::Error::new(error.0, error.1.clone())
+}
+fn wait_timed_out(what: &str) -> Error {
+    Error::Io(io::Error::new(io::ErrorKind::TimedOut, what))
+}
+impl Child {
+    pub fn spawn(config: Config) -> Result<Self, Error> {
+        if crate::signals::is_pending() {
+            return Err(Error::Interrupted);
+        }
+        sync_task(async move { spawn(config).await.map_err(Error::Start) })
+    }
+    fn check_open(&self) -> Result<(), ChildError> {
+        if *self.closed.lock().unwrap() {
+            Err(ChildError::Closed)
+        } else {
+            Ok(())
+        }
+    }
+    /// The process ID the child was started with. It stays readable after
+    /// `close`, when the operating system may have reused it.
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+    pub fn wait(&self) -> Result<Output, ChildError> {
+        self.check_open()?;
+        if crate::signals::is_pending() {
+            return Err(Error::Interrupted.into());
+        }
+        self.close_stdin()?;
+        let mut state = self.shared.state.lock().unwrap();
+        loop {
+            if crate::signals::is_pending() {
+                return Err(Error::Interrupted.into());
+            }
+            if state.done {
+                return Ok(result(&state)?);
+            }
+            state = self
+                .shared
+                .changed
+                .wait_timeout(state, Duration::from_millis(10))
+                .unwrap()
+                .0;
+        }
+    }
+    /// Foreground operations own the child and finish cleanup before returning
+    /// an interruption. Waiting on a caller-owned Child leaves it running.
+    pub fn wait_foreground(&self) -> Result<Output, ChildError> {
+        match self.wait() {
+            Err(ChildError::Cmd(Error::Interrupted)) => {
+                self.close()?;
+                Err(Error::Interrupted.into())
+            }
+            result => result,
+        }
+    }
+    /// `None` while the child is running or its output is still being read.
+    pub fn poll(&self) -> Result<Option<Output>, ChildError> {
+        self.check_open()?;
+        let state = self.shared.state.lock().unwrap();
+        if state.done {
+            Ok(Some(result(&state)?))
+        } else {
+            Ok(None)
+        }
+    }
+    pub fn kill(&self) -> Result<(), ChildError> {
+        self.check_open()?;
+        self.shared.forwarding.cancel();
+        self.shared.cancel.notify_one();
+        Ok(())
+    }
+    /// Kill and reap the child. Only a failure to reap it is an error: a pipe
+    /// that broke because the child was killed is not.
+    pub fn close(&self) -> Result<(), Error> {
+        let mut closed = self.closed.lock().unwrap();
+        if *closed {
+            return Ok(());
+        }
+        self.shared.forwarding.cancel();
+        self.shared.cancel.notify_one();
+        let mut state = self.shared.state.lock().unwrap();
+        while !state.done {
+            state = self.shared.changed.wait(state).unwrap();
+        }
+        *closed = true;
+        match &state.error {
+            Some(error) if state.reap_failed => Err(Error::Io(stored_error(error))),
+            _ => Ok(()),
+        }
+    }
+    pub fn close_stdin(&self) -> Result<(), ChildError> {
+        self.check_open()?;
+        let stdin = self.stdin.clone();
+        sync_task(async move {
+            stdin.lock().await.take();
+        });
+        Ok(())
+    }
+    /// Write all of `bytes` to a piped stdin within `wait`. A zero wait makes
+    /// one attempt that does not block. A timed-out write may have delivered a
+    /// prefix.
+    pub fn write(&self, bytes: Vec<u8>, wait: Duration) -> Result<(), ChildError> {
+        self.check_open()?;
+        if crate::signals::is_pending() {
+            return Err(Error::Interrupted.into());
+        }
+        let stdin = self.stdin.clone();
+        let written = sync_task(async move {
+            let write = async {
+                let mut input = stdin.lock().await;
+                input
+                    .as_mut()
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::BrokenPipe, "Child stdin is not open")
+                    })?
+                    .write_all(&bytes)
+                    .await
+            };
+            let bounded = async {
+                // A wait too long to represent as a deadline never expires.
+                match tokio::time::Instant::now().checked_add(wait) {
+                    Some(deadline) => tokio::time::timeout_at(deadline, write)
+                        .await
+                        .map_err(|_| wait_timed_out("Child stdin write timed out"))?
+                        .map_err(Error::Io),
+                    None => write.await.map_err(Error::Io),
+                }
+            };
+            tokio::select! {
+                biased;
+                _ = crate::signals::cancelled() => Err(Error::Interrupted),
+                result = bounded => result,
+            }
+        });
+        Ok(written?)
+    }
+    /// The next queued chunk of piped output, waiting up to `wait` for one. A
+    /// zero wait returns a chunk that is ready and otherwise times out. `None`
+    /// once the child is done and every chunk has been returned.
+    pub fn read(&self, wait: Duration) -> Result<Option<Event>, ChildError> {
+        self.check_open()?;
+        // A wait too long to represent as a deadline never expires.
+        let deadline = Instant::now().checked_add(wait);
+        let mut state = self.shared.state.lock().unwrap();
+        loop {
+            if crate::signals::is_pending() {
+                return Err(Error::Interrupted.into());
+            }
+            if let Some(event) = state.events.pop_front() {
+                state.pending -= event.bytes.len();
+                return Ok(Some(event));
+            }
+            if state.done {
+                return match (&state.error, state.stop) {
+                    (Some(error), None) => Err(Error::Io(stored_error(error)).into()),
+                    _ => Ok(None),
+                };
+            }
+            state = match deadline {
+                Some(deadline) => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        return Err(wait_timed_out("Child output read timed out").into());
+                    }
+                    self.shared
+                        .changed
+                        .wait_timeout(state, remaining.min(Duration::from_millis(10)))
+                        .unwrap()
+                        .0
+                }
+                None => {
+                    self.shared
+                        .changed
+                        .wait_timeout(state, Duration::from_millis(10))
+                        .unwrap()
+                        .0
+                }
+            };
+        }
+    }
+}
+impl Drop for Child {
+    fn drop(&mut self) {
+        self.shared.forwarding.cancel();
+        self.shared.cancel.notify_one();
+    }
+}
+/// The outcome of a finished command. A deadline or limit that stopped it
+/// outranks an I/O error, which is then a consequence of the kill.
+fn result(state: &State) -> Result<Output, Error> {
+    let partial = || Partial {
+        stdout: state.stdout.clone(),
+        stderr: state.stderr.clone(),
+    };
+    match (state.stop, &state.error) {
+        (Some(Stop::TimedOut), _) => Err(Error::TimedOut(partial())),
+        (Some(Stop::OutputLimit), _) => Err(Error::OutputLimitExceeded(partial())),
+        (None, Some(error)) => Err(Error::Io(stored_error(error))),
+        (None, None) => Ok(Output {
+            status: state.status,
+            stdout: state.stdout.clone(),
+            stderr: state.stderr.clone(),
+        }),
+    }
+}
+fn report_error(shared: &Shared, error: &io::Error) {
+    {
+        let mut state = shared.state.lock().unwrap();
+        if state.error.is_none() {
+            state.error = Some((error.kind(), error.to_string()));
+        }
+    }
+    shared.cancel.notify_one();
+    shared.changed.notify_all();
+}
+/// The first reason to stop a command is the one reported.
+fn stop(shared: &Shared, state: &mut State, reason: Stop) {
+    if state.stop.is_none() {
+        state.stop = Some(reason);
+    }
+    shared.cancel.notify_one();
+}
+struct Pump {
+    shared: Arc<Shared>,
+    stream: Stream,
+    mode: OutputMode,
+    output_limit: usize,
+    pending_limit: usize,
+}
+async fn observed_pump<R: AsyncRead + Unpin>(reader: R, pump: Pump) -> io::Result<()> {
+    let shared = pump.shared.clone();
+    let result = pump.run(reader).await;
+    if let Err(error) = &result {
+        if error.kind() == io::ErrorKind::Interrupted && shared.forwarding.is_cancelled() {
+            return Ok(());
+        }
+        report_error(&shared, error);
+    }
+    result
+}
+impl Pump {
+    async fn run<R: AsyncRead + Unpin>(self, mut reader: R) -> io::Result<()> {
+        let Pump {
+            shared,
+            stream,
+            mode,
+            output_limit,
+            pending_limit,
+        } = self;
+        let mut buffer = [0u8; 8192];
+        loop {
+            let count = reader.read(&mut buffer).await?;
+            if count == 0 {
+                return Ok(());
+            }
+            {
+                let mut state = shared.state.lock().unwrap();
+                match mode {
+                    OutputMode::Pipe => {
+                        let keep = count.min(pending_limit.saturating_sub(state.pending));
+                        if keep != 0 {
+                            state.events.push_back(Event {
+                                stream,
+                                bytes: buffer[..keep].to_vec(),
+                            });
+                            state.pending += keep;
+                        }
+                        if keep != count {
+                            stop(&shared, &mut state, Stop::OutputLimit);
+                        }
+                    }
+                    OutputMode::Capture | OutputMode::Tee => {
+                        let used = state.stdout.len() + state.stderr.len();
+                        let keep = count.min(output_limit.saturating_sub(used));
+                        match stream {
+                            Stream::Stdout => state.stdout.extend_from_slice(&buffer[..keep]),
+                            Stream::Stderr => state.stderr.extend_from_slice(&buffer[..keep]),
+                        }
+                        if keep != count {
+                            stop(&shared, &mut state, Stop::OutputLimit);
+                        }
+                    }
+                    OutputMode::Inherit
+                    | OutputMode::InheritStderr
+                    | OutputMode::Null
+                    | OutputMode::File => {}
+                }
+                shared.changed.notify_all();
+            }
+            // `Inherit` is pumped only for a merged stream, which has to pass
+            // through the shared pipe to keep its order.
+            if matches!(
+                mode,
+                OutputMode::Tee | OutputMode::Inherit | OutputMode::InheritStderr
+            ) {
+                let target = match (stream, mode) {
+                    (_, OutputMode::InheritStderr) | (Stream::Stderr, _) => {
+                        crate::native_stdio::Stream::Stderr
+                    }
+                    (Stream::Stdout, _) => crate::native_stdio::Stream::Stdout,
+                };
+                crate::native_stdio::forward(target, buffer[..count].to_vec(), &shared.forwarding)
+                    .await?;
+            }
+        }
+    }
+}
+async fn spawn(mut config: Config) -> io::Result<Child> {
+    // A deadline too far away to represent never expires.
+    let deadline = config
+        .timeout
+        .and_then(|timeout| tokio::time::Instant::now().checked_add(timeout));
+    config.command.stdin(match config.stdin {
+        StdinMode::Inherit => Stdio::inherit(),
+        StdinMode::Null => Stdio::null(),
+        StdinMode::Bytes(_) | StdinMode::Pipe => Stdio::piped(),
+    });
+    let stdout_file = config.stdout_file.take();
+    if config.stdout == OutputMode::File {
+        let file = stdout_file.ok_or_else(|| io::Error::other("missing stdout file"))?;
+        if config.stderr == StderrMode::MergeWithStdout {
+            // Duplicate the same open file description: offset and O_APPEND are
+            // shared, so stderr cannot reopen/truncate the stdout destination.
+            config.command.stderr(Stdio::from(file.try_clone()?));
+        }
+        config.command.stdout(Stdio::from(file));
+    } else {
+        config.command.stdout(output_stdio(config.stdout));
+    }
+    let merge = config.stderr == StderrMode::MergeWithStdout;
+    // Both descriptors share one kernel pipe, preserving their actual write ordering.
+    let merged = match config.stderr {
+        StderrMode::Separate(OutputMode::File) => {
+            let file = config
+                .stderr_file
+                .take()
+                .ok_or_else(|| io::Error::other("missing stderr file"))?;
+            config.command.stderr(Stdio::from(file));
+            None
+        }
+        StderrMode::Separate(mode) => {
+            config.command.stderr(output_stdio(mode));
+            None
+        }
+        StderrMode::MergeWithStdout if config.stdout == OutputMode::File => None,
+        StderrMode::MergeWithStdout if config.stdout == OutputMode::Null => {
+            config.command.stderr(Stdio::null());
+            None
+        }
+        StderrMode::MergeWithStdout => {
+            let (reader, writer) = std::io::pipe()?;
+            config.command.stdout(Stdio::from(writer.try_clone()?));
+            config.command.stderr(Stdio::from(writer));
+            #[cfg(unix)]
+            let reader = std::process::ChildStdout::from(std::os::fd::OwnedFd::from(reader));
+            #[cfg(windows)]
+            let reader =
+                std::process::ChildStdout::from(std::os::windows::io::OwnedHandle::from(reader));
+            Some(tokio::process::ChildStdout::from_std(reader)?)
+        }
+    };
+    let stderr_mode = match config.stderr {
+        StderrMode::Separate(mode) => mode,
+        StderrMode::MergeWithStdout => config.stdout,
+    };
+    let (automatic_input, input) = match config.stdin {
+        StdinMode::Bytes(bytes) => (true, bytes),
+        _ => (false, Vec::new()),
+    };
+    let output_limit = config.output_limit.unwrap_or(usize::MAX);
+    // A leashed child joins the group the watchdog founds and leads, so a host
+    // death that skips the sweep still takes the group down. The child joins
+    // it directly rather than through process-wrap's ProcessGroup wrapper,
+    // whose kill and reap assume the child leads its own group (it derives the
+    // pgid from the child's own pid). Here the watchdog leads, so the teardown
+    // path below group-kills the watchdog's pgid itself. A watchdog that fails
+    // to fork falls back to the plain managed-tree path.
+    #[cfg(unix)]
+    let (watchdog, leash_pgid) = if config.leash {
+        // Linux backs the watchdog up with PDEATHSIG for the direct child: it
+        // needs no second process and fires without the watchdog's EOF
+        // latency. PDEATHSIG is tied to the parent *thread*, not the process,
+        // so this is only sound because the spawn below forks synchronously
+        // on the calling thread (tokio's Command::spawn is plain
+        // std::process::Command::spawn), and the calling thread is the
+        // dedicated process-service thread from `service()`, which blocks on
+        // a pending future until the process exits. Never move this spawn
+        // onto a worker or blocking-pool thread: PDEATHSIG would then kill the
+        // child as soon as that thread retired.
+        #[cfg(target_os = "linux")]
+        unsafe {
+            use std::os::unix::process::CommandExt;
+            config.command.pre_exec(|| {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == -1 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        match crate::leash::Watchdog::fork() {
+            Some(w) => {
+                use std::os::unix::process::CommandExt;
+                let pgid = w.pgid();
+                config.command.process_group(pgid);
+                (Some(w), Some(pgid))
+            }
+            None => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+    let mut command = CommandWrap::from(tokio::process::Command::from(config.command));
+    command.wrap(KillOnDrop);
+    // A plain managed tree, or a leash whose watchdog fork failed, leads its
+    // own group and lets process-wrap kill and reap it. Windows uses a
+    // kill-on-close Job Object, which already dies with the host: process-wrap
+    // only sets JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE when KillOnDrop is wrapped
+    // too (see its JobObject::pre_spawn), so the KillOnDrop wrap above is what
+    // makes the Windows leash hold on every host death, not just on Drop.
+    #[cfg(unix)]
+    if config.manage_tree && leash_pgid.is_none() {
+        command.wrap(ProcessGroup::leader());
+    }
+    #[cfg(windows)]
+    if config.manage_tree {
+        command.wrap(JobObject);
+    }
+    let mut child = command.spawn()?;
+    let pid = child
+        .id()
+        .ok_or_else(|| io::Error::other("Child has no process ID"))?;
+    let stdout = merged.or_else(|| child.stdout().take());
+    let stderr = child.stderr().take();
+    let mut input_pipe = child.stdin().take();
+    let automatic_pipe = if automatic_input {
+        input_pipe.take()
+    } else {
+        None
+    };
+    let stdin = Arc::new(AsyncMutex::new(input_pipe));
+    let shared = Arc::new(Shared {
+        forwarding: crate::native_stdio::Owner::default(),
+        state: Mutex::new(State {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            status: Status::Exited(-1),
+            events: VecDeque::new(),
+            pending: 0,
+            done: false,
+            stop: None,
+            error: None,
+            reap_failed: false,
+        }),
+        changed: Condvar::new(),
+        cancel: Notify::new(),
+    });
+    {
+        let mut registry = registry().lock().unwrap();
+        registry.retain(|entry| entry.strong_count() > 0);
+        registry.push(Arc::downgrade(&shared));
+    }
+    let handle = Child {
+        pid,
+        shared: shared.clone(),
+        stdin: stdin.clone(),
+        closed: Mutex::new(false),
+        #[cfg(unix)]
+        _watchdog: watchdog,
+    };
+    tokio::spawn(async move {
+        let mut readers = Vec::new();
+        if let Some(pipe) = stdout {
+            readers.push(tokio::spawn(observed_pump(
+                pipe,
+                Pump {
+                    shared: shared.clone(),
+                    stream: Stream::Stdout,
+                    mode: config.stdout,
+                    output_limit,
+                    pending_limit: config.pending_limit,
+                },
+            )));
+        }
+        if let Some(pipe) = stderr {
+            readers.push(tokio::spawn(observed_pump(
+                pipe,
+                Pump {
+                    shared: shared.clone(),
+                    stream: if merge {
+                        Stream::Stdout
+                    } else {
+                        Stream::Stderr
+                    },
+                    mode: stderr_mode,
+                    output_limit,
+                    pending_limit: config.pending_limit,
+                },
+            )));
+        }
+        let mut writer = if automatic_input {
+            let shared = shared.clone();
+            Some(tokio::spawn(async move {
+                let result = if let Some(mut pipe) = automatic_pipe {
+                    pipe.write_all(&input).await
+                } else {
+                    Ok(())
+                };
+                if let Err(error) = &result {
+                    report_error(&shared, error);
+                }
+                result
+            }))
+        } else {
+            None
+        };
+        let completion = async {
+            let status = child.wait().await?;
+            for reader in &mut readers {
+                reader.await.map_err(io::Error::other)??;
+            }
+            if let Some(writer) = writer.as_mut() {
+                writer.await.map_err(io::Error::other)??;
+            }
+            Ok::<_, io::Error>(status)
+        };
+        let expiry = async {
+            match deadline {
+                // The timer rounds up to its next tick, so a deadline that
+                // has already passed is decided here and not by a sleep the
+                // command could finish before.
+                Some(deadline) if deadline <= tokio::time::Instant::now() => {}
+                Some(deadline) => tokio::time::sleep_until(deadline).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        // Polled in this order, so a deadline that has already passed (a zero
+        // timeout) stops the command even if it would also have finished.
+        let completed = tokio::select! {
+            biased;
+            _ = shared.cancel.notified() => None,
+            _ = expiry => {
+                let mut state = shared.state.lock().unwrap();
+                stop(&shared, &mut state, Stop::TimedOut);
+                None
+            }
+            result = completion => Some(result),
+        };
+        shared.forwarding.cancel();
+        // A leashed child is not wrapped in a process group process-wrap can
+        // kill, because the watchdog leads its group, not the child. So take
+        // the whole group down here by its known pgid: this reaches the
+        // grandchildren a bare child kill would leave holding the pipes.
+        #[cfg(unix)]
+        let group_kill = || {
+            if let Some(pgid) = leash_pgid {
+                unsafe { libc::kill(-pgid, libc::SIGKILL) };
+            }
+        };
+        let status = match completed {
+            Some(Ok(status)) => Ok(status),
+            Some(Err(err)) => {
+                #[cfg(unix)]
+                group_kill();
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                Err(err)
+            }
+            None => {
+                #[cfg(unix)]
+                group_kill();
+                let _ = child.start_kill();
+                child.wait().await
+            }
+        };
+        for reader in readers {
+            reader.abort();
+        }
+        if let Some(writer) = writer {
+            writer.abort();
+        }
+        shared.forwarding.cancel_and_wait().await;
+        stdin.lock().await.take();
+        let mut state = shared.state.lock().unwrap();
+        match status {
+            Ok(status) => {
+                state.status = Status::Exited(status.code().unwrap_or(-1));
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::ExitStatusExt;
+                    if let Some(signal) = status.signal() {
+                        state.status = Status::Signaled(signal);
+                    }
+                }
+            }
+            Err(err) => {
+                // A pipe failure was recorded when it happened; anything else
+                // here is a failure to wait for the process itself.
+                if state.error.is_none() {
+                    state.error = Some((err.kind(), err.to_string()));
+                    state.reap_failed = true;
+                }
+            }
+        }
+        state.done = true;
+        shared.changed.notify_all();
+    });
+    Ok(handle)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn pending_interruption_prevents_start_and_keeps_cleanup_available() {
+        struct Pending;
+        impl Drop for Pending {
+            fn drop(&mut self) {
+                crate::signals::set_test_pending(false);
+            }
+        }
+        let child = Child::spawn(shell("sleep 30")).unwrap();
+        crate::signals::set_test_pending(true);
+        let _pending = Pending;
+        assert!(matches!(
+            Child::spawn(shell("exit 0")),
+            Err(Error::Interrupted)
+        ));
+        assert!(matches!(
+            child.wait(),
+            Err(ChildError::Cmd(Error::Interrupted))
+        ));
+        assert!(matches!(
+            child.read(SECOND),
+            Err(ChildError::Cmd(Error::Interrupted))
+        ));
+        assert!(matches!(
+            child.write(vec![1], SECOND),
+            Err(ChildError::Cmd(Error::Interrupted))
+        ));
+        assert!(child.poll().unwrap().is_none());
+        child.kill().unwrap();
+        child.close_stdin().unwrap();
+        child.close().unwrap();
+        child.close().unwrap();
+    }
+    fn shell(script: &str) -> Config {
+        let mut command = std::process::Command::new("sh");
+        command.args(["-c", script]);
+        Config {
+            command,
+            stdin: StdinMode::Null,
+            stdout: OutputMode::Capture,
+            stderr: StderrMode::Separate(OutputMode::Capture),
+            stdout_file: None,
+            stderr_file: None,
+            timeout: Some(Duration::from_secs(3)),
+            output_limit: Some(16 * 1024 * 1024),
+            pending_limit: 1024 * 1024,
+            manage_tree: true,
+            leash: false,
+        }
+    }
+    fn run(config: Config) -> Result<Output, ChildError> {
+        Child::spawn(config).unwrap().wait()
+    }
+    fn timed_out(result: Result<Output, ChildError>) -> Partial {
+        match result {
+            Err(ChildError::Cmd(Error::TimedOut(partial))) => partial,
+            other => panic!("expected a timeout, got {other:?}"),
+        }
+    }
+    fn limit_exceeded(result: Result<Output, ChildError>) -> Partial {
+        match result {
+            Err(ChildError::Cmd(Error::OutputLimitExceeded(partial))) => partial,
+            other => panic!("expected an exceeded limit, got {other:?}"),
+        }
+    }
+    fn io_kind<T: std::fmt::Debug>(result: Result<T, ChildError>) -> io::ErrorKind {
+        match result {
+            Err(ChildError::Cmd(Error::Io(error))) => error.kind(),
+            other => panic!("expected an I/O error, got {other:?}"),
+        }
+    }
+    #[test]
+    fn nonzero_and_bytes() {
+        let child = Child::spawn(shell("printf '\\377'; printf err >&2; exit 7")).unwrap();
+        let output = child.wait().unwrap();
+        assert_eq!(output.status, Status::Exited(7));
+        assert_eq!(output.stdout, [255]);
+        assert_eq!(output.stderr, b"err");
+        assert_eq!(child.wait().unwrap().status, Status::Exited(7));
+    }
+    #[test]
+    fn simultaneous_output_cannot_deadlock() {
+        let output = run(shell(
+            "(head -c 200000 /dev/zero >&2) & head -c 200000 /dev/zero; wait",
+        ))
+        .unwrap();
+        assert_eq!(output.stdout.len(), 200000);
+        assert_eq!(output.stderr.len(), 200000);
+        assert_eq!(output.status, Status::Exited(0));
+    }
+    #[test]
+    fn capture_limit_retains_bounded_partial_output() {
+        let mut config = shell("printf err >&2; sleep 0.2; head -c 200000 /dev/zero");
+        config.output_limit = Some(1000);
+        let partial = limit_exceeded(run(config));
+        assert_eq!(partial.stderr, b"err");
+        assert_eq!(partial.stdout, vec![0; 997]);
+    }
+    #[test]
+    fn zero_capture_limit_allows_no_output() {
+        let mut config = shell("printf x");
+        config.output_limit = Some(0);
+        assert_eq!(limit_exceeded(run(config)), Partial::default());
+    }
+    #[test]
+    fn no_capture_limit_keeps_everything() {
+        let mut config = shell("head -c 200000 /dev/zero");
+        config.output_limit = None;
+        assert_eq!(run(config).unwrap().stdout.len(), 200000);
+    }
+    #[test]
+    fn deadline_includes_descendant_pipe_ownership() {
+        let mut config = shell("sleep 30 & exit 0");
+        config.timeout = Some(Duration::from_millis(60));
+        let before = Instant::now();
+        timed_out(run(config));
+        assert!(before.elapsed() < Duration::from_secs(2));
+    }
+    #[test]
+    fn deadline_kills_and_returns_partial_output() {
+        let mut config = shell("echo Hi; printf warn >&2; sleep 30");
+        config.timeout = Some(Duration::from_millis(500));
+        let before = Instant::now();
+        let child = Child::spawn(config).unwrap();
+        let partial = timed_out(child.wait());
+        assert!(before.elapsed() < Duration::from_secs(5));
+        assert_eq!(partial.stdout, b"Hi\n");
+        assert_eq!(partial.stderr, b"warn");
+        // The result is stable, and polling reports the same thing.
+        assert_eq!(timed_out(child.wait()), partial);
+        assert_eq!(timed_out(child.poll().map(Option::unwrap)), partial);
+        // The process is gone: nothing answers to its ID.
+        assert_eq!(unsafe { libc::kill(child.pid() as i32, 0) }, -1);
+    }
+    #[test]
+    fn deadline_kills_a_spawned_child_nobody_waits_on() {
+        let mut config = shell("sleep 30");
+        config.timeout = Some(Duration::from_millis(100));
+        let child = Child::spawn(config).unwrap();
+        let before = Instant::now();
+        loop {
+            match child.poll() {
+                Ok(None) => {
+                    assert!(before.elapsed() < Duration::from_secs(5));
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                other => {
+                    assert_eq!(timed_out(other.map(Option::unwrap)), Partial::default());
+                    break;
+                }
+            }
+        }
+    }
+    #[test]
+    fn zero_timeout_expires_immediately() {
+        // The command would succeed at once; a zero deadline still wins.
+        let mut config = shell("exit 0");
+        config.timeout = Some(Duration::ZERO);
+        let before = Instant::now();
+        assert_eq!(timed_out(run(config)), Partial::default());
+        let mut config = shell("sleep 30");
+        config.timeout = Some(Duration::ZERO);
+        assert_eq!(timed_out(run(config)), Partial::default());
+        assert!(before.elapsed() < Duration::from_secs(5));
+    }
+    #[test]
+    fn no_timeout_and_unrepresentable_timeout_do_not_expire() {
+        let mut config = shell("sleep 0.2; echo done");
+        config.timeout = None;
+        assert_eq!(run(config).unwrap().stdout, b"done\n");
+        let mut config = shell("echo done");
+        config.timeout = Some(Duration::MAX);
+        assert_eq!(run(config).unwrap().stdout, b"done\n");
+    }
+    #[test]
+    fn interactive_stdin_and_chunked_output() {
+        let mut config = shell("cat");
+        config.stdin = StdinMode::Pipe;
+        config.stdout = OutputMode::Pipe;
+        let child = Child::spawn(config).unwrap();
+        assert!(child.poll().unwrap().is_none());
+        child.write(b"hello".to_vec(), SECOND).unwrap();
+        child.close_stdin().unwrap();
+        let mut bytes = Vec::new();
+        while let Some(event) = child.read(SECOND).unwrap() {
+            assert_eq!(event.stream, Stream::Stdout);
+            bytes.extend(event.bytes);
+        }
+        assert_eq!(bytes, b"hello");
+        // The end is reported again on every later read.
+        assert!(child.read(Duration::ZERO).unwrap().is_none());
+        assert_eq!(child.wait().unwrap().status, Status::Exited(0));
+        child.close().unwrap();
+        child.close().unwrap();
+    }
+    #[test]
+    fn use_after_close_is_closed() {
+        let mut config = shell("cat");
+        config.stdin = StdinMode::Pipe;
+        config.stdout = OutputMode::Pipe;
+        let child = Child::spawn(config).unwrap();
+        let pid = child.pid();
+        child.close().unwrap();
+        assert!(matches!(child.read(SECOND), Err(ChildError::Closed)));
+        assert!(matches!(
+            child.read(Duration::ZERO),
+            Err(ChildError::Closed)
+        ));
+        assert!(matches!(
+            child.write(b"x".to_vec(), SECOND),
+            Err(ChildError::Closed)
+        ));
+        assert!(matches!(child.wait(), Err(ChildError::Closed)));
+        assert!(matches!(child.poll(), Err(ChildError::Closed)));
+        assert!(matches!(child.kill(), Err(ChildError::Closed)));
+        assert!(matches!(child.close_stdin(), Err(ChildError::Closed)));
+        // Closing again succeeds, and the process ID stays readable.
+        child.close().unwrap();
+        assert_eq!(child.pid(), pid);
+    }
+    #[test]
+    fn close_kills_and_reaps_a_running_child() {
+        let mut config = shell("sleep 30");
+        config.stdin = StdinMode::Bytes(vec![1; 200000]);
+        let child = Child::spawn(config).unwrap();
+        let before = Instant::now();
+        // The unread input pipe breaks when the child dies; that is not a
+        // failure to close.
+        child.close().unwrap();
+        assert!(before.elapsed() < Duration::from_secs(2));
+        assert_eq!(unsafe { libc::kill(child.pid() as i32, 0) }, -1);
+    }
+    #[test]
+    fn zero_wait_read_returns_what_is_ready_or_times_out() {
+        let mut config = shell("read line; echo \"$line\"; read line");
+        config.stdin = StdinMode::Pipe;
+        config.stdout = OutputMode::Pipe;
+        let child = Child::spawn(config).unwrap();
+        // Nothing has been written yet, and a zero wait does not block.
+        let before = Instant::now();
+        assert_eq!(io_kind(child.read(Duration::ZERO)), io::ErrorKind::TimedOut);
+        assert!(before.elapsed() < Duration::from_millis(500));
+        child.write(b"ping\n".to_vec(), SECOND).unwrap();
+        // Wait for the reply to be queued, then take it without waiting.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let event = loop {
+            match child.read(Duration::ZERO) {
+                Ok(event) => break event.unwrap(),
+                Err(error) => {
+                    assert_eq!(io_kind::<()>(Err(error)), io::ErrorKind::TimedOut);
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        };
+        assert_eq!(event.bytes, b"ping\n");
+        // The child is still running, so a timed-out read is not the end.
+        assert_eq!(
+            io_kind(child.read(Duration::from_millis(20))),
+            io::ErrorKind::TimedOut
+        );
+        assert!(child.poll().unwrap().is_none());
+        child.close_stdin().unwrap();
+        assert!(child.read(SECOND).unwrap().is_none());
+    }
+    #[test]
+    fn write_without_a_pipe_is_broken_pipe_and_a_full_pipe_times_out() {
+        let child = Child::spawn(shell("sleep 30")).unwrap();
+        assert_eq!(
+            io_kind(child.write(b"x".to_vec(), SECOND)),
+            io::ErrorKind::BrokenPipe
+        );
+        let mut config = shell("sleep 30");
+        config.stdin = StdinMode::Pipe;
+        let child = Child::spawn(config).unwrap();
+        // More than a pipe holds, to a child that never reads.
+        let input = vec![7; 4 * 1024 * 1024];
+        assert_eq!(
+            io_kind(child.write(input.clone(), Duration::ZERO)),
+            io::ErrorKind::TimedOut
+        );
+        assert_eq!(
+            io_kind(child.write(input, Duration::from_millis(50))),
+            io::ErrorKind::TimedOut
+        );
+        child.close_stdin().unwrap();
+        assert_eq!(
+            io_kind(child.write(b"x".to_vec(), SECOND)),
+            io::ErrorKind::BrokenPipe
+        );
+    }
+    #[test]
+    fn cwd_does_not_change_parent() {
+        let original = std::env::current_dir().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = shell("pwd");
+        config.command.current_dir(tmp.path());
+        let child = Child::spawn(config).unwrap();
+        let output = child.wait().unwrap();
+        assert_eq!(
+            std::path::Path::new(String::from_utf8(output.stdout).unwrap().trim()),
+            std::fs::canonicalize(tmp.path()).unwrap()
+        );
+        assert_eq!(std::env::current_dir().unwrap(), original);
+    }
+    #[test]
+    fn drop_terminates_and_reaps() {
+        let child = Child::spawn(shell("sleep 30")).unwrap();
+        let shared = child.shared.clone();
+        drop(child);
+        let state = shared.state.lock().unwrap();
+        let (state, result) = shared
+            .changed
+            .wait_timeout_while(state, Duration::from_secs(2), |state| !state.done)
+            .unwrap();
+        assert!(!result.timed_out());
+        assert!(state.done);
+    }
+    #[test]
+    fn repeated_file_writes_share_offsets_without_using_capture_budgets() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("child.log");
+        let mut config =
+            shell("i=0; while [ $i -lt 4096 ]; do printf out; printf err >&2; i=$((i+1)); done");
+        config.stdout = OutputMode::File;
+        config.stdout_file = Some(std::fs::File::create(&path).unwrap());
+        config.stderr = StderrMode::MergeWithStdout;
+        config.output_limit = Some(1);
+        config.pending_limit = 1;
+        let output = run(config).unwrap();
+        assert_eq!(output.status, Status::Exited(0));
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+        assert_eq!(std::fs::read(path).unwrap(), b"outerr".repeat(4096));
+    }
+
+    #[test]
+    fn merged_output_preserves_kernel_pipe_order() {
+        let mut config = shell("printf a; printf b >&2; printf c; printf d >&2");
+        config.stderr = StderrMode::MergeWithStdout;
+        let output = run(config).unwrap();
+        assert_eq!(output.stdout, b"abcd");
+        assert!(output.stderr.is_empty());
+    }
+    #[test]
+    fn merged_output_follows_a_piped_or_null_stdout() {
+        let mut config = shell("printf a; printf b >&2");
+        config.stdout = OutputMode::Pipe;
+        config.stderr = StderrMode::MergeWithStdout;
+        let child = Child::spawn(config).unwrap();
+        let mut bytes = Vec::new();
+        while let Some(event) = child.read(SECOND).unwrap() {
+            assert_eq!(event.stream, Stream::Stdout);
+            bytes.extend(event.bytes);
+        }
+        assert_eq!(bytes, b"ab");
+        let mut config = shell("printf a; printf b >&2");
+        config.stdout = OutputMode::Null;
+        config.stderr = StderrMode::MergeWithStdout;
+        let output = run(config).unwrap();
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    }
+    #[test]
+    fn separate_pipes_are_tagged_by_stream() {
+        let mut config = shell("printf out; sleep 0.2; printf err >&2");
+        config.stdout = OutputMode::Pipe;
+        config.stderr = StderrMode::Separate(OutputMode::Pipe);
+        let child = Child::spawn(config).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = child.read(SECOND).unwrap() {
+            events.push((event.stream, event.bytes));
+        }
+        assert_eq!(
+            events,
+            [
+                (Stream::Stdout, b"out".to_vec()),
+                (Stream::Stderr, b"err".to_vec())
+            ]
+        );
+    }
+    #[test]
+    fn automatic_input_is_not_lost_by_wait() {
+        let mut config = shell("cat");
+        config.stdin = StdinMode::Bytes(vec![42; 200000]);
+        let output = run(config).unwrap();
+        assert_eq!(output.stdout, vec![42; 200000]);
+    }
+    #[test]
+    fn wait_closes_interactive_stdin() {
+        let mut config = shell("cat");
+        config.stdin = StdinMode::Pipe;
+        let child = Child::spawn(config).unwrap();
+        assert_eq!(child.wait().unwrap().status, Status::Exited(0));
+    }
+    #[test]
+    fn signal_status_and_kill() {
+        let child = Child::spawn(shell("sleep 30")).unwrap();
+        child.kill().unwrap();
+        // A kill the caller asked for is a status, not an error.
+        let output = child.wait().unwrap();
+        assert_eq!(output.status, Status::Signaled(libc::SIGKILL));
+        // Killing a child that is gone does nothing.
+        child.kill().unwrap();
+        assert_eq!(child.wait().unwrap(), output);
+    }
+    #[test]
+    fn signal_a_child_sends_itself_is_its_status() {
+        let output = run(shell("kill -TERM $$")).unwrap();
+        assert_eq!(output.status, Status::Signaled(libc::SIGTERM));
+    }
+    #[test]
+    fn pending_output_limit_is_bounded() {
+        let mut config = shell("head -c 200000 /dev/zero");
+        config.stdout = OutputMode::Pipe;
+        config.pending_limit = 1000;
+        let child = Child::spawn(config).unwrap();
+        // Piped output is not captured, so the partial output is empty.
+        assert_eq!(limit_exceeded(child.wait()), Partial::default());
+        let mut pending = 0;
+        while let Some(event) = child.read(SECOND).unwrap() {
+            pending += event.bytes.len();
+        }
+        assert_eq!(pending, 1000);
+    }
+    #[test]
+    fn native_arguments_survive_without_utf8_conversion() {
+        use std::os::unix::ffi::OsStringExt;
+        let mut config = shell("printf '%s' \"$1\"");
+        config
+            .command
+            .arg("script")
+            .arg(std::ffi::OsString::from_vec(vec![255, 42]));
+        let output = run(config).unwrap();
+        assert_eq!(output.stdout, [255, 42]);
+    }
+    #[test]
+    fn missing_program_is_a_start_failure() {
+        let mut config = shell("");
+        config.command = std::process::Command::new("/does/not/exist/basic-cli");
+        // Even a zero deadline does not hide that nothing was started.
+        config.timeout = Some(Duration::ZERO);
+        match Child::spawn(config) {
+            Err(Error::Start(error)) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
+            Err(other) => panic!("expected a start failure, got {other:?}"),
+            Ok(_) => panic!("expected a start failure, got a child"),
+        }
+    }
+    #[test]
+    fn unstartable_program_is_a_start_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut config = shell("");
+        config.command = std::process::Command::new(tmp.path());
+        match Child::spawn(config) {
+            Err(Error::Start(error)) => {
+                assert_eq!(error.kind(), io::ErrorKind::PermissionDenied)
+            }
+            Err(other) => panic!("expected a start failure, got {other:?}"),
+            Ok(_) => panic!("expected a start failure, got a child"),
+        }
+    }
+    /// The leash through the production path: the child sits in a group led
+    /// by the watchdog rather than by itself, close takes the whole group
+    /// down including a backgrounded grandchild, and releasing the handle
+    /// reaps the watchdog so the pgid does not linger.
+    #[test]
+    fn leashed_close_takes_the_whole_group_down() {
+        let mut config = shell("sleep 600 & echo $!; wait");
+        config.stdout = OutputMode::Pipe;
+        config.timeout = None;
+        config.leash = true;
+        let child = Child::spawn(config).unwrap();
+        let mut line = Vec::new();
+        while !line.contains(&b'\n') {
+            let event = child
+                .read(5 * SECOND)
+                .unwrap()
+                .expect("child exited before announcing");
+            line.extend(event.bytes);
+        }
+        let grandchild: libc::pid_t = String::from_utf8_lossy(&line).trim().parse().unwrap();
+        let pid = child.pid() as libc::pid_t;
+        let pgid = unsafe { libc::getpgid(pid) };
+        assert!(
+            pgid > 0 && pgid != pid,
+            "leashed child should join the watchdog's group"
+        );
+        child.close().unwrap();
+        drop(child);
+        // close reaps the direct child. The orphaned grandchild is reparented
+        // and reaped by init a moment later, and the watchdog by the drop.
+        for _ in 0..500 {
+            let grandchild_gone = unsafe { libc::kill(grandchild, 0) } == -1;
+            let group_gone = unsafe { libc::kill(-pgid, 0) } == -1;
+            if grandchild_gone && group_gone {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("leashed tree survived close: grandchild {grandchild}, group {pgid}");
+    }
+}
+
+/// The Windows spin on the Unix death matrix in `crate::leash`. A leashed
+/// child there lives in a kill-on-close Job Object, so the whole job must die
+/// for every way the host can die, including the ones that skip all cleanup.
+/// Everything is spawned through the production path, `Child::spawn` with
+/// `manage_tree`, which is what `Cmd.spawn_leashed!` reaches on Windows.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::io::BufRead as _;
+    use std::io::Write as _;
+
+    /// Starts a hidden ping grandchild that idles for ten minutes, announces
+    /// its pid on stdout, then idles itself: a two-level tree whose survival
+    /// is easy to check from outside.
+    const TREE_SCRIPT: &str = "$p = Start-Process ping -ArgumentList '-n','600','127.0.0.1' \
+         -PassThru -WindowStyle Hidden; \
+         Write-Output ('leash-grandchild ' + $p.Id); Start-Sleep -Seconds 600";
+
+    /// The config `Cmd.spawn_leashed!` produces, with stdout piped so the
+    /// tests can read the tree announcement.
+    fn leashed_tree() -> Config {
+        let mut command = std::process::Command::new("powershell");
+        command.args(["-NoProfile", "-Command", TREE_SCRIPT]);
+        Config {
+            command,
+            stdin: StdinMode::Null,
+            stdout: OutputMode::Pipe,
+            stderr: StderrMode::Separate(OutputMode::Inherit),
+            stdout_file: None,
+            stderr_file: None,
+            timeout: None,
+            output_limit: Some(16 * 1024 * 1024),
+            pending_limit: 1024 * 1024,
+            manage_tree: true,
+            leash: true,
+        }
+    }
+
+    /// Reads the child's stdout up to the first newline and returns the
+    /// grandchild pid announced there. Generous timeout: powershell is slow
+    /// to start on a cold CI runner.
+    fn announced_grandchild(child: &Child) -> u32 {
+        let mut announcement = Vec::new();
+        while !announcement.contains(&b'\n') {
+            let event = child
+                .read(Duration::from_secs(60))
+                .unwrap()
+                .expect("child closed stdout before announcing");
+            announcement.extend(event.bytes);
+        }
+        let line = String::from_utf8_lossy(&announcement);
+        let rest = line
+            .trim()
+            .strip_prefix("leash-grandchild ")
+            .unwrap_or_else(|| panic!("unexpected announcement {line:?}"));
+        rest.trim().parse().unwrap()
+    }
+
+    /// Polls tasklist until `pid` no longer exists. The padded needle keeps
+    /// pid 123 from matching pid 1234's row.
+    fn wait_until_gone(pid: u32) {
+        let filter = format!("PID eq {pid}");
+        let needle = format!(" {pid} ");
+        for _ in 0..100 {
+            let out = std::process::Command::new("tasklist")
+                .args(["/NH", "/FI", &filter])
+                .output()
+                .unwrap();
+            if !String::from_utf8_lossy(&out.stdout).contains(&needle) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("process {pid} still alive after 10s");
+    }
+
+    /// close takes a running leashed job down, grandchild included, with no
+    /// host death involved: the in-process twin of the death matrix below.
+    #[test]
+    fn leashed_close_takes_the_whole_job_down() {
+        let child = Child::spawn(leashed_tree()).unwrap();
+        let grandchild = announced_grandchild(&child);
+        let pid = child.pid();
+        child.close().unwrap();
+        drop(child);
+        wait_until_gone(pid);
+        wait_until_gone(grandchild);
+    }
+
+    /// Re-runs this test binary as a disposable host (the ignored fake_host
+    /// below), which leashes the powershell-plus-ping tree, announces the
+    /// pids on stdout, and dies the way `mode` says. Kill-on-close must take
+    /// the whole job down for every way the host can die.
+    fn host_death_takes_the_tree_down(mode: &str) {
+        let exe = std::env::current_exe().unwrap();
+        let mut host = std::process::Command::new(exe)
+            .args([
+                "process_service::windows_tests::fake_host",
+                "--exact",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("LEASH_TEST_DEATH_MODE", mode)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let reader = std::io::BufReader::new(host.stdout.take().unwrap());
+        let mut child: u32 = 0;
+        let mut grandchild: u32 = 0;
+        for line in reader.lines() {
+            let line = line.unwrap();
+            if let Some(rest) = line.strip_prefix("leash-host ") {
+                child = rest.trim().parse().unwrap();
+            } else if let Some(rest) = line.strip_prefix("leash-grandchild ") {
+                grandchild = rest.trim().parse().unwrap();
+            }
+            if child != 0 && grandchild != 0 {
+                break;
+            }
+        }
+        assert!(
+            child > 0 && grandchild > 0,
+            "fake host never announced its tree (mode {mode})"
+        );
+        if mode == "hang" {
+            // An outside TerminateProcess: the kill -9 analog.
+            let killed = std::process::Command::new("taskkill")
+                .args(["/F", "/PID", &host.id().to_string()])
+                .status()
+                .unwrap();
+            assert!(killed.success(), "taskkill failed");
+        }
+        host.wait().unwrap();
+        wait_until_gone(child);
+        wait_until_gone(grandchild);
+    }
+
+    #[test]
+    fn tree_dies_when_the_host_exits_without_cleanup() {
+        host_death_takes_the_tree_down("exit");
+    }
+
+    #[test]
+    fn tree_dies_when_the_host_aborts() {
+        host_death_takes_the_tree_down("abort");
+    }
+
+    #[test]
+    fn tree_dies_when_the_host_is_terminated() {
+        host_death_takes_the_tree_down("hang");
+    }
+
+    /// Not a test: the disposable host, see the Unix twin in `crate::leash`
+    /// for the pattern. Ignored so normal runs skip it. A bare `--ignored`
+    /// run without the env var makes it a no-op.
+    #[test]
+    #[ignore]
+    fn fake_host() {
+        let Ok(mode) = std::env::var("LEASH_TEST_DEATH_MODE") else {
+            return;
+        };
+        let child = Child::spawn(leashed_tree()).unwrap();
+        // Relaying the announcement guarantees the grandchild exists before
+        // this host dies, same as the Unix fake host.
+        let grandchild = announced_grandchild(&child);
+        println!("leash-grandchild {grandchild}");
+        println!("leash-host {}", child.pid());
+        std::io::stdout().flush().unwrap();
+        // Not dropped: a Drop here would close the job handle and clean the
+        // tree up before the death below gets to prove anything.
+        std::mem::forget(child);
+        match mode.as_str() {
+            "exit" => std::process::exit(0),
+            "abort" => std::process::abort(),
+            // For the terminated test: stay alive until the outside
+            // taskkill lands.
+            "hang" => loop {
+                std::thread::sleep(Duration::from_secs(600));
+            },
+            other => panic!("unknown death mode {other}"),
+        }
+    }
+}
