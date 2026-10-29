@@ -92,7 +92,7 @@
               pkgs.python3
               rustToolchain
               pkgs.simple-http-server
-              pkgs.zig_0_16
+              pkgs.zig_0_17
             ]
             ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.valgrind ];
 
