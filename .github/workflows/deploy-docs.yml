@@ -1,0 +1,63 @@
+name: Deploy docs to Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-docs.yml"
+      - "docs/**"
+      - "platform/**"
+      - "scripts/restore_release_docs.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+# Do not add permissions here! Configure them at the job level!
+permissions: {}
+
+jobs:
+  deploy:
+    name: Deploy docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Install Roc
+        uses: ./.github/actions/setup-roc-pinned
+
+      - name: Restore released docs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/restore_release_docs.sh temp_docs
+
+      - name: Generate main branch docs
+        env:
+          ROC_DOCS_URL_ROOT: /${{ github.event.repository.name }}/main
+        run: |
+          set -euo pipefail
+
+          roc docs --output=temp_docs/main platform/main.roc
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: temp_docs
+
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

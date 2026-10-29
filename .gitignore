@@ -1,0 +1,102 @@
+### Do not modify these first three ignore rules.  Needed to ignore files with no extension ###
+# Ignore all files including binary files that have no extension
+*
+# Unignore all files with extensions
+!*.*
+# Unignore all directories
+!*/
+
+
+*.rh*
+*.rm*
+dynhost
+target
+generated-docs
+generated-docs-*
+.direnv
+*.rs.bk
+*.o
+*.so
+*.obj
+*.dll
+*.lib
+*.def
+*.tmp
+*.wasm
+*.exe
+*.pdb
+*.dylib
+
+# llvm human-readable output
+*.ll
+*.bc
+
+#valgrind
+vgcore.*
+
+#editors
+.idea/
+.vscode/
+.claude/
+.ignore
+.exrc
+.vimrc
+.nvimrc
+
+# rust cache (sccache folder)
+sccache_dir
+
+# self-contained benchmark folder
+bench-folder*
+
+# macOS .DS_Store files
+.DS_Store
+
+# files geneated when formatting fails
+*.roc-format-failed
+*.roc-format-failed-ast-after
+*.roc-format-failed-ast-before
+
+# Test artifacts
+out.txt
+
+# Downloaded Roc nightly
+roc_nightly*
+
+# Roc source built by CI
+roc-src
+
+# see examples/dir.roc
+dirExampleE
+dirExampleA
+dirExampleD
+
+# Test runner output
+test_output.log
+
+# Old build artifacts (platform/*.a was pre-migration location)
+platform/*.a
+
+# build script artifacts
+build
+
+# Platform host libraries (we manually add things to track like crt1.o, libc.a, libunwind.a)
+platform/targets/*/libhost.a
+
+# Generated Windows host libraries, provenance, and license notices
+platform/targets/x64win/
+
+# Cargo lock for reproducible builds
+!Cargo.lock
+
+# Bundled platform package
+*.tar.zst
+dist/
+.release/
+
+# Python helper caches
+__pycache__/
+*.pyc
+
+# Locally downloaded Roc nightly
+.roc-bin/
