@@ -96,13 +96,23 @@ def run(request: dict[str, object]) -> dict[str, object]:
             # Its own group, so a console event can be sent to it alone.
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
-    reader = threading.Thread(target=lambda: output.extend(process.stdout.read()), daemon=True)
+    def read_output() -> None:
+        # In chunks, so await_output sees what has been printed so far.
+        while chunk := process.stdout.read1(65536):
+            output.extend(chunk)
+
+    reader = threading.Thread(target=read_output, daemon=True)
     reader.start()
     try:
         if request["await_raw_mode"]:
             while console.mode() == initial_mode:
                 if process.poll() is not None or time.monotonic() >= deadline:
                     return {"error": "Terminal never changed mode"}
+                time.sleep(0.01)
+        elif request["await_output"]:
+            while str(request["await_output"]).encode() not in output:
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    return {"error": f"Never printed {request['await_output']!r}"}
                 time.sleep(0.01)
         else:
             time.sleep(0.25)

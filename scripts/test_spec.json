@@ -1606,6 +1606,7 @@
             "."
           ],
           "pty": true,
+          "await_output": "Serving",
           "send_signal": "SIGINT",
           "temp_cwd": true,
           "exit_code": 0,
