@@ -267,7 +267,8 @@ def pipe_process(
 
 def pty_process(
     args: list[str], cwd: Path, env: dict[str, str], stdin: bytes, timeout: float,
-    input_delay: float, *, await_raw_mode: bool = False, send_signal: str | None = None,
+    input_delay: float, *, await_raw_mode: bool = False, await_output: str | None = None,
+    send_signal: str | None = None,
 ) -> tuple[int, str]:
     import pty
     import termios
@@ -294,6 +295,15 @@ def pty_process(
                 if process.poll() is not None or time.monotonic() >= deadline:
                     raise SystemExit(f"Terminal never changed mode: {' '.join(args)}")
                 time.sleep(0.01)
+        elif await_output is not None:
+            # A fixed wait loses to a slow start, such as macOS checking a
+            # binary on its first launch.
+            while await_output.encode() not in output:
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    raise SystemExit(f"Never printed {await_output!r}: {' '.join(args)}")
+                readable, _, _ = select.select([master], [], [], 0.01)
+                if readable:
+                    output.extend(os.read(master, 65536))
         else:
             time.sleep(0.25)
         for byte in stdin:
@@ -343,12 +353,13 @@ def pty_process(
 
 def console_process(
     args: list[str], cwd: Path, env: dict[str, str], stdin: bytes, timeout: float,
-    input_delay: float, *, await_raw_mode: bool = False, send_signal: str | None = None,
+    input_delay: float, *, await_raw_mode: bool = False, await_output: str | None = None,
+    send_signal: str | None = None,
 ) -> tuple[int, str]:
     """Windows counterpart of pty_process; see scripts/windows_console.py."""
     request = {
         "args": args, "stdin": stdin.decode(), "timeout": timeout, "input_delay": input_delay,
-        "await_raw_mode": await_raw_mode, "send_signal": send_signal,
+        "await_raw_mode": await_raw_mode, "await_output": await_output, "send_signal": send_signal,
     }
     hidden = subprocess.STARTUPINFO()
     hidden.dwFlags |= subprocess.STARTF_USESHOWWINDOW
@@ -575,6 +586,7 @@ def run_binary(
                     args, cwd, env, stdin, timeout,
                     float(run_spec.get("input_delay", 0.08)),
                     await_raw_mode=bool(run_spec.get("await_raw_mode")),
+                    await_output=run_spec.get("await_output"),
                     send_signal=send_signal,
                 )
                 stderr = ""
