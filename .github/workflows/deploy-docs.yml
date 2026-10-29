@@ -8,7 +8,7 @@ on:
       - ".github/workflows/deploy-docs.yml"
       - "docs/**"
       - "platform/**"
-      - "scripts/restore_release_docs.sh"
+      - "scripts/restore_release_docs.py"
   workflow_dispatch:
 
 concurrency:
@@ -43,7 +43,7 @@ jobs:
       - name: Restore released docs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/restore_release_docs.sh temp_docs
+        run: python3 scripts/restore_release_docs.py temp_docs
 
       - name: Generate main branch docs
         env:
