@@ -35,12 +35,11 @@ while IFS= read -r release_name; do
   fi
 done <<< "$release_names"
 
-latest_stable="$(
-  gh api "repos/$repository/releases/latest" --jq .tag_name 2>/dev/null || true
-)"
-
-if [ -n "$latest_stable" ]; then
-  sed "s/LATESTVERSION/$latest_stable/g" docs/index.html > "$docs_root/index.html"
-else
-  sed 's/LATESTVERSION/main/g' docs/index.html > "$docs_root/index.html"
+# On a 404 (no stable release yet) gh prints the error body to stdout, so
+# only keep its output when it succeeds. Release candidates come next, newest
+# first, then main.
+if ! latest="$(gh api "repos/$repository/releases/latest" --jq .tag_name 2>/dev/null)"; then
+  latest="$(head -n 1 <<< "$release_names")"
 fi
+
+sed "s|LATESTVERSION|${latest:-main}|g" docs/index.html > "$docs_root/index.html"
