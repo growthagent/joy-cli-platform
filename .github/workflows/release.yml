@@ -425,7 +425,7 @@ jobs:
       - name: Restore published versioned docs
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/restore_release_docs.sh www
+        run: python3 scripts/restore_release_docs.py www
 
       - name: Snapshot existing docs
         uses: roc-lang/release-package/actions/docs-snapshot@af2f0cd8662874b825ff3917f4286e793ba18c55
