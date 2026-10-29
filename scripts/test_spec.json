@@ -1,0 +1,1620 @@
+{
+  "stages": {
+    "fmt": true,
+    "check": true,
+    "test": true,
+    "build": true,
+    "run": true
+  },
+  "apps": [
+    {
+      "path": "examples/bytes-stdin-stdout.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "stdin": "someinput\n",
+          "stdout_contains": [
+            "someinput\n"
+          ],
+          "stderr_contains": [
+            "Copied 10 bytes from stdin to stdout."
+          ]
+        },
+        {
+          "name": "no-input",
+          "stderr_contains": [
+            "Copied 0 bytes from stdin to stdout."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/check-command.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "contains": [
+            "git is available",
+            "definitely-not-a-real-command-xyz is not available"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/command-line-args.roc",
+      "cases": [
+        {
+          "name": "one-argument",
+          "args": [
+            "foo"
+          ],
+          "contains": [
+            "program name:",
+            "verbose: False",
+            "received argument: foo",
+            "back to OsStr: OsStr.",
+            "argument 1 is valid UTF-8: foo"
+          ],
+          "regex": [
+            "program name: .*command-line-args(?:\\.exe)?",
+            "(?:Unix argument, bytes|Windows argument, UTF-16 code units): \\[102, 111, 111\\]"
+          ]
+        },
+        {
+          "name": "literal-equals-native-argument",
+          "args": [
+            "foo",
+            "--verbose"
+          ],
+          "contains": [
+            "verbose: True",
+            "received argument: foo"
+          ]
+        },
+        {
+          "name": "literal-differs-from-similar-argument",
+          "args": [
+            "--verbos",
+            "--verbose=1",
+            "--VERBOSE"
+          ],
+          "contains": [
+            "verbose: False",
+            "received argument: --verbos"
+          ]
+        },
+        {
+          "name": "missing-argument",
+          "exit_code": 1,
+          "contains": [
+            "verbose: False",
+            "Program exited with error: MissingArgument"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/command.roc",
+      "platforms": {
+        "windows": {
+          "run": false
+        }
+      },
+      "reason": "Runtime scenario invokes Unix commands",
+      "cases": [
+        {
+          "name": "happy",
+          "live_handles": 0,
+          "stdout_contains": [
+            "Hello\nCaptured: Hi Roc\n",
+            "Command config: Cmd.Command({ program: OsStr.utf8(\"/usr/bin/env\"), args: [], env_names: [OsStr.utf8(\"FOO\"), OsStr.utf8(\"BAZ\")], clear_envs: True,",
+            "FOO=BAR\n",
+            "BAZ=DUCK\n",
+            "Status: Exited(1)\nStderr: cat: ",
+            "Status again: Exited(1)\nFailed: cat non_existent.txt\nBytes: [72, 105, 10]\nNot installed: definitely-not-a-real-command-xyz\n"
+          ],
+          "stderr_regex": [
+            "^cat: .*non_existent\\.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/command-leashed.roc",
+      "platforms": {
+        "windows": {
+          "run": false
+        }
+      },
+      "reason": "Runtime scenario spawns Unix commands (cat, sh, sleep)",
+      "cases": [
+        {
+          "name": "happy",
+          "live_handles": 0,
+          "stdout_contains": [
+            "cat echoed: hello, leash!",
+            "leashed exit: Exited(7)",
+            "leashed tree closed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/command-leashed-windows.roc",
+      "platforms": {
+        "linux": {
+          "run": false
+        },
+        "darwin": {
+          "run": false
+        }
+      },
+      "reason": "Runtime scenario spawns Windows commands (cmd, sort, powershell)",
+      "cases": [
+        {
+          "name": "happy",
+          "timeout": 20,
+          "stdout_contains": [
+            "echo exit: Exited(0)",
+            "echo said: hello",
+            "apple",
+            "banana",
+            "cherry",
+            "leashed tree closed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/dir.roc",
+      "cases": [
+        {
+          "name": "workspace-lifecycle",
+          "temp_cwd": true,
+          "contains": [
+            "Workspace entries:",
+            "Workspace cleaned up."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/env-var.roc",
+      "cases": [
+        {
+          "name": "both-variables",
+          "env": {
+            "EDITOR": "nano",
+            "LETTERS": "a,c,e,j"
+          },
+          "contains": [
+            "Your favorite editor is nano!",
+            "No need to remember how to quit vim.",
+            "Your favorite letters are: a c e j",
+            "The environment dictionary agrees: a,c,e,j"
+          ]
+        },
+        {
+          "name": "literal-equals-native-value",
+          "env": {
+            "EDITOR": "vim",
+            "LETTERS": "x"
+          },
+          "contains": [
+            "Your favorite editor is vim!",
+            "Remember: `:q!` gets you out.",
+            "The environment dictionary agrees: x"
+          ]
+        },
+        {
+          "name": "missing-editor",
+          "unset_env": [
+            "EDITOR",
+            "LETTERS"
+          ],
+          "exit_code": 1,
+          "contains": [
+            "VarNotFound(OsStr."
+          ]
+        },
+        {
+          "name": "missing-letters",
+          "unset_env": [
+            "LETTERS"
+          ],
+          "env": {
+            "EDITOR": "nano"
+          },
+          "exit_code": 1,
+          "contains": [
+            "VarNotFound(OsStr."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/error-handling.roc",
+      "cases": [
+        {
+          "name": "handled-not-found",
+          "contains": [
+            "(Expected ✅) error: Path not found (NotFound): nonexistent-file.txt",
+            "(Expected ✅) error: Path is a directory: examples",
+            "(Expected ✅) error: Path is not a directory: LICENSE",
+            "test-file.txt contains: Hello from error-handling example!"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-accessed-modified-created-time.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "args": [
+            "{root}/LICENSE"
+          ],
+          "regex": [
+            "LICENSE file time metadata:\\n    Modified: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z \\((stale|fresh)\\)\\n    Accessed: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\\n    Created: ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z|unsupported)$"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-append.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "temp_cwd": true,
+          "stdout_contains": [
+            "The log contains:\nstarted\nworking\nfinished\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-permissions.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "args": [
+            "{root}/LICENSE"
+          ],
+          "contains": [
+            "LICENSE file permissions:",
+            "Executable: False",
+            "Readable: True",
+            "Writable: True"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-read-binary.roc",
+      "cases": [
+        {
+          "name": "empty",
+          "live_handles": 0,
+          "args": [
+            "{root}/tests/fixtures/binary-reader/empty.bin"
+          ],
+          "stdout_contains": [
+            "Header bytes: []",
+            "Read 0 bytes"
+          ]
+        },
+        {
+          "name": "short",
+          "live_handles": 0,
+          "args": [
+            "{root}/tests/fixtures/binary-reader/short.bin"
+          ],
+          "stdout_contains": [
+            "Header bytes: [0, 255, 128, 10, 1, 2, 3, 4]",
+            "Read 8 bytes"
+          ]
+        },
+        {
+          "name": "multi-chunk",
+          "live_handles": 0,
+          "args": [
+            "{root}/tests/fixtures/binary-reader/multi-chunk.bin"
+          ],
+          "stdout_contains": [
+            "Header bytes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]",
+            "Read 65543 bytes"
+          ]
+        },
+        {
+          "name": "missing-argument",
+          "live_handles": 0,
+          "exit_code": 1,
+          "contains": [
+            "MissingPathArgument"
+          ]
+        },
+        {
+          "name": "missing-file",
+          "live_handles": 0,
+          "args": [
+            "missing.bin"
+          ],
+          "temp_cwd": true,
+          "exit_code": 1,
+          "contains": [
+            "PathErr(NotFound, Path."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-read-buffered.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "live_handles": 0,
+          "regex": [
+            "Done reading file: \\{ lines_read: [0-9]+, longest_line_bytes: [0-9]+ \\}"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-read-write.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "temp_cwd": true,
+          "contains": [
+            "Writing a string to out.txt",
+            "I read the file back. Its contents are: \"a string!\""
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-replace.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "temp_cwd": true,
+          "contains": [
+            "After replacing: \"Goodbye, World! Goodbye, Roc!\""
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-size.roc",
+      "cases": [
+        {
+          "name": "existing-file",
+          "args": [
+            "{root}/LICENSE"
+          ],
+          "regex": [
+            "LICENSE is [0-9]+ bytes"
+          ]
+        },
+        {
+          "name": "missing-file",
+          "args": [
+            "missing.txt"
+          ],
+          "temp_cwd": true,
+          "exit_code": 1,
+          "contains": [
+            "PathErr(NotFound, Path."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/file-write-stream.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "report.csv:\nname,total\napples,3\npears,12\nplums,240\nreport-redacted.csv:\nname,total\napples,#\npears,##\nplums,###\nRequireNew left the existing report alone.\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/hello-world.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "contains": [
+            "Hello, World!"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/hello.roc",
+      "cases": [
+        {
+          "name": "default-name",
+          "contains": [
+            "Hello, friend, from joy-cli-platform!"
+          ]
+        },
+        {
+          "name": "given-name",
+          "args": [
+            "Roc"
+          ],
+          "contains": [
+            "Hello, Roc, from joy-cli-platform!"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/http-client.roc",
+      "cases": [
+        {
+          "name": "server-available",
+          "helper": "http",
+          "timeout": 15,
+          "contains": [
+            "I received 'Hello utf8' from the server.",
+            "send_json! echoed: { foo: \"Hello Json!\" }.",
+            "invalid UTF-8 was rejected.",
+            "invalid request URL was rejected."
+          ]
+        },
+        {
+          "name": "connection-refused",
+          "exit_code": 1,
+          "contains": [
+            "GetUtf8Failed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/http-download.roc",
+      "cases": [
+        {
+          "name": "server-available",
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "Downloaded 200000 bytes to download.bin.\nThe server answered 404; download.bin was left alone.\ndownload.bin still holds 200000 bytes.\nReceived 200000 of 200000 bytes from /stream/sized.\nReceived 300000 bytes of unannounced length from /stream/chunked.\n"
+          ]
+        },
+        {
+          "name": "connection-refused",
+          "temp_cwd": true,
+          "live_handles": 0,
+          "exit_code": 1,
+          "contains": [
+            "DownloadFailed(HttpErr(Other("
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/http-simple.roc",
+      "cases": [
+        {
+          "name": "server-available",
+          "helper": "http",
+          "timeout": 15,
+          "contains": [
+            "I received 'Hello utf8' from the server.",
+            "<body>Basic CLI HTTP test</body>"
+          ]
+        },
+        {
+          "name": "connection-refused",
+          "exit_code": 1,
+          "contains": [
+            "GetUtf8Failed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/path.roc",
+      "cases": [
+        {
+          "name": "existing-source",
+          "args": [
+            "{source}"
+          ],
+          "contains": [
+            "Debug: Path.",
+            "Filename: path.roc",
+            "Extension: roc",
+            "Type: IsFile"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/print.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "stdout_contains": [
+            "Hello, world!",
+            "No newline after me.Foo",
+            "Baz"
+          ],
+          "stderr_contains": [
+            "Hello, error!",
+            "Err with no newline after."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/random.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "regex": [
+            "Random U64 seed is: [0-9]+",
+            "Random U32 seed is: [0-9]+"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/stdin-basic.roc",
+      "cases": [
+        {
+          "name": "two-lines",
+          "stdin": "John\nDoe\n",
+          "contains": [
+            "What's your first name?",
+            "What's your last name?",
+            "Hi, John Doe! 👋"
+          ]
+        },
+        {
+          "name": "end-of-input",
+          "exit_code": 1,
+          "stderr_contains": [
+            "MissingFirstName"
+          ]
+        },
+        {
+          "name": "empty-last-name",
+          "stdin": "John\n\n",
+          "exit_code": 1,
+          "stderr_contains": [
+            "MissingLastName"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/stdin-pipe.roc",
+      "cases": [
+        {
+          "name": "unterminated-line",
+          "stdin": "hey",
+          "stdout_contains": [
+            "1: hey\nRead 1 line(s)\n"
+          ]
+        },
+        {
+          "name": "crlf-and-empty-lines",
+          "stdin": "a\r\nb\n\nc",
+          "stdout_contains": [
+            "1: a\n2: b\n3: \n4: c\nRead 4 line(s)\n"
+          ]
+        },
+        {
+          "name": "invalid-utf8-line",
+          "stdin_hex": "6f6b0afffe0a656e640a",
+          "stdout_contains": [
+            "1: ok\n3: end\nRead 3 line(s)\n"
+          ],
+          "stderr_contains": [
+            "2: invalid UTF-8 at byte 0"
+          ]
+        },
+        {
+          "name": "no-input",
+          "stdout_contains": [
+            "Read 0 line(s)"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/temp-dir.roc",
+      "cases": [
+        {
+          "name": "happy",
+          "regex": [
+            "The temp dir path is .+"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/terminal-app-snake.roc",
+      "cases": [
+        {
+          "name": "quit-command",
+          "pty": true,
+          "stdin": "q",
+          "contains": [
+            "Game Over"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/time.roc",
+      "cases": [
+        {
+          "name": "one-second-sleep",
+          "timeout": 10,
+          "regex": [
+            "^Started at 20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+            "^Completed in [1-9][0-9]*(\\.[0-9]{1,3})?s$",
+            "^Waited out the 1\\.2s interval$"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/tty.roc",
+      "cases": [
+        {
+          "name": "raw-mode",
+          "pty": true,
+          "await_raw_mode": true,
+          "stdin": "q",
+          "contains": [
+            "Tty: enabling raw mode",
+            "Tty: disabled raw mode",
+            "Read 1 byte(s)."
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/url.roc",
+      "cases": [
+        {
+          "name": "search-request",
+          "contains": [
+            "Request URL: https://api.example.com/v1/search?q=roc+lang&page=1#results",
+            "Debug URL: Url(\"https://api.example.com/v1/search?q=roc+lang&page=1#results\")",
+            "JSON URL: \"https://api.example.com/v1/search?q=roc+lang&page=1#results\""
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/filesystem-tools.roc",
+      "cases": [
+        {
+          "name": "prepare-release",
+          "args": [
+            "{root}/tests/resource-lifetimes",
+            "release"
+          ],
+          "temp_cwd": true,
+          "stdout_contains": [
+            "Release prepared at "
+          ]
+        },
+        {
+          "name": "missing-paths",
+          "exit_code": 1,
+          "contains": [
+            "MissingPaths"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/process-control.roc",
+      "cases": [
+        {
+          "name": "successful-build",
+          "live_handles": 0,
+          "args": [
+            "{python}",
+            "-c",
+            "import sys; print(\"compiling\"); print(\"warning: example\", file=sys.stderr)"
+          ],
+          "stdout_contains": [
+            "compiling",
+            "Build completed successfully"
+          ],
+          "stderr_contains": [
+            "warning: example"
+          ]
+        },
+        {
+          "name": "failed-build",
+          "live_handles": 0,
+          "args": [
+            "{python}",
+            "-c",
+            "raise SystemExit(7)"
+          ],
+          "exit_code": 1,
+          "contains": [
+            "BuildFailed(Exited(7))"
+          ]
+        },
+        {
+          "name": "missing-command",
+          "live_handles": 0,
+          "exit_code": 1,
+          "contains": [
+            "MissingCommand"
+          ]
+        },
+        {
+          "name": "missing-program",
+          "live_handles": 0,
+          "args": [
+            "definitely-not-a-real-command-xyz"
+          ],
+          "exit_code": 1,
+          "stderr_regex": [
+            "^Program exited with error: CmdErr\\(StartFailed\\(NotFound, OsStr\\.\\w+\\(\"definitely-not-a-real-command-xyz\"\\)\\)\\)$"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/cmd-api.roc",
+      "cases": [
+        {
+          "name": "every-entry-point",
+          "live_handles": 0,
+          "timeout": 60,
+          "env": {
+            "CMD_TEST_INHERITED": "yes"
+          },
+          "stdout_contains": [
+            "exec: printed by the child\ncapture: Hi\n",
+            "run: Exited(0) \"to stdout\n\" \"to stderr\n\"\n",
+            "bad exit: Err(BadExitStatus({ command: \"<command>\", status: Exited(3), stdout: \"out\n\", stderr: \"err\n\" }))\n",
+            "exec: Exited(4) \"out\n\"\ncapture: Exited(5) \"out\n\"\n",
+            "inherit_stdio: printed by the child\ninherit_stdio: Exited(0)\n",
+            "bad utf8: Err(BadUtf8({ index: 1, problem: InvalidStartByte }))\n",
+            "lossy: { command: \"<command>\", status: Exited(0), stdout: \"H�\n\", stderr: \"\" }\n",
+            "running: ok\n",
+            "missing program: Err(CmdErr(StartFailed(NotFound, OsStr.utf8(\"definitely-not-a-real-command-xyz\"))))\n",
+            "missing program, in words: could not start definitely-not-a-real-command-xyz: entity was not found\n",
+            "missing program, spawned: definitely-not-a-real-command-xyz\n",
+            "environment values: hidden\n",
+            "output limit: Err(CmdErr(OutputLimitExceeded({ stdout: \"Hell\", stderr: \"\" })))\n",
+            "errors: ok\n",
+            "merged: \"out\nerr\n\" \"\"\n",
+            "tee: printed and captured\n",
+            "inherited environment: CMD_TEST_INHERITED=yes\n",
+            "streams: ok\n",
+            "read, zero wait: Err(CmdErr(IOErr(TimedOut)))\nread, short wait: Err(CmdErr(IOErr(TimedOut)))\n",
+            "write after close_stdin!: Err(CmdErr(IOErr(BrokenPipe)))\nread at the end: Err(EndOfInput)\n",
+            "after close!: read Err(Closed), write Err(Closed), wait Err(Closed), poll Err(Closed), kill Err(Closed), close_stdin Err(Closed)\n",
+            "child: ok\n",
+            "timed out: Err(CmdErr(TimedOut({ stdout: \"Hi\n\", stderr: \"\" })))\n",
+            "timed out, spawned: Err(CmdErr(TimedOut({ stdout: \"Hi\n\", stderr: \"\" })))\n",
+            "zero timeout: Err(CmdErr(TimedOut({ stdout: \"\", stderr: \"\" })))\n",
+            "deadlines: ok\n",
+            "function value: exec\nbad utf8 through ?: Err(BadUtf8({ index: 1, problem: InvalidStartByte })) Err(BadUtf8({ index: 1, problem: InvalidStartByte }))\nfunction values: ok\ncmd: ok\n"
+          ],
+          "stderr_contains": [
+            "capture: stderr reaches the terminal\n",
+            "stdout to parent stderr\n",
+            "merged to parent stderr\nand stderr\n"
+          ]
+        },
+        {
+          "name": "unhandled-timeout",
+          "live_handles": 0,
+          "timeout": 60,
+          "args": [
+            "unhandled-timeout"
+          ],
+          "exit_code": 1,
+          "stderr_contains": [
+            "Program exited with error: CmdErr(TimedOut({ stdout: \"Hi\n\", stderr: \"\" }))\n"
+          ]
+        },
+        {
+          "name": "unhandled-start-failure",
+          "live_handles": 0,
+          "args": [
+            "unhandled-start-failure"
+          ],
+          "exit_code": 1,
+          "stderr_contains": [
+            "Program exited with error: CmdErr(StartFailed(NotFound, OsStr.utf8(\"definitely-not-a-real-command-xyz\")))\n"
+          ]
+        },
+        {
+          "name": "unhandled-bad-exit",
+          "live_handles": 0,
+          "args": [
+            "unhandled-bad-exit"
+          ],
+          "exit_code": 1,
+          "stderr_regex": [
+            "^Program exited with error: BadExitStatus\\(\\{ command: \"[^\\n]*cmd-api(\\.exe)? --helper exit 3\", status: Exited\\(3\\), stdout: \"out\n\", stderr: \"err\n\" \\}\\)$"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/read-streams.roc",
+      "cases": [
+        {
+          "name": "stdin-lines",
+          "args": [
+            "stdin-lines"
+          ],
+          "stdin": "a\r\nb\n\nc",
+          "stdout_contains": [
+            "line: \"a\"\nline: \"b\"\nline: \"\"\nline: \"c\"\nstream ended\nline! after the end: Err(EndOfInput)\nbytes! after the end: Err(EndOfInput)\n"
+          ]
+        },
+        {
+          "name": "stdin-lines-one-carriage-return",
+          "args": [
+            "stdin-lines"
+          ],
+          "stdin": "two\r\r\n\rmid\rdle\nlast\r",
+          "stdout_contains": [
+            "line: \"two\\r\"\nline: \"\\rmid\\rdle\"\nline: \"last\\r\"\nstream ended\n"
+          ]
+        },
+        {
+          "name": "stdin-lines-bad-utf8",
+          "args": [
+            "stdin-lines"
+          ],
+          "stdin_hex": "6f6b0afffe0d0a656e640a",
+          "stdout_contains": [
+            "line: \"ok\"\nbad utf8 at byte 0\nline: \"end\"\nstream ended\n"
+          ]
+        },
+        {
+          "name": "stdin-lines-no-input",
+          "args": [
+            "stdin-lines"
+          ],
+          "stdout_regex": [
+            "\\Astream ended\nline! after the end: Err\\(EndOfInput\\)\n"
+          ]
+        },
+        {
+          "name": "stdin-line-calls",
+          "args": [
+            "stdin-line-calls"
+          ],
+          "stdin_hex": "780d0a0aff7a0a6c617374",
+          "stdout_contains": [
+            "first: \"x\"\nsecond: Ok(\"\")\nthird: Err(BadUtf8({ index: 0, problem: InvalidStartByte }))\nfourth: Ok(\"last\")\nfifth: end of input\n"
+          ]
+        },
+        {
+          "name": "stdin-line-calls-no-input",
+          "args": [
+            "stdin-line-calls"
+          ],
+          "exit_code": 1,
+          "stderr_contains": [
+            "EndOfInput"
+          ]
+        },
+        {
+          "name": "stdin-chunks",
+          "args": [
+            "stdin-chunks"
+          ],
+          "stdin_hex": "00ff0d0a0a80",
+          "stdout_contains": [
+            "chunks: [0, 255, 13, 10, 10, 128]\nbytes! after the end: Err(EndOfInput)\n"
+          ]
+        },
+        {
+          "name": "stdin-chunks-no-input",
+          "args": [
+            "stdin-chunks"
+          ],
+          "stdout_contains": [
+            "chunks: []\nbytes! after the end: Err(EndOfInput)\n"
+          ]
+        },
+        {
+          "name": "header-then-read-to-end",
+          "args": [
+            "header-then-read-to-end"
+          ],
+          "stdin": "A: 1\r\nB: 2\r\n\r\nbody\r\nmore",
+          "stdout_contains": [
+            "header: \"A: 1\"\nheader: \"B: 2\"\nrest: [98, 111, 100, 121, 13, 10, 109, 111, 114, 101]\n"
+          ]
+        },
+        {
+          "name": "header-then-chunks",
+          "args": [
+            "header-then-chunks"
+          ],
+          "stdin": "A: 1\r\nB: 2\r\n\r\nbody\r\nmore",
+          "stdout_contains": [
+            "header: \"A: 1\"\nheader: \"B: 2\"\nrest: [98, 111, 100, 121, 13, 10, 109, 111, 114, 101]\n"
+          ]
+        },
+        {
+          "name": "header-then-lines",
+          "args": [
+            "header-then-lines"
+          ],
+          "stdin": "A: 1\r\nB: 2\r\n\r\nbody\r\nmore",
+          "stdout_contains": [
+            "header: \"A: 1\"\nheader: \"B: 2\"\nline: \"body\"\nline: \"more\"\nstream ended\n"
+          ]
+        },
+        {
+          "name": "file-reader",
+          "args": [
+            "file"
+          ],
+          "stdout_contains": [
+            "line: \"one\"\nline: \"\"\nbad utf8 at byte 0\nline: \"four\\r\"\nline: \"five\"\nstream ended at byte 20 of 20\n",
+            "read_line! at the end: Err(EndOfInput)\nread_until! at the end: Err(EndOfInput)\nread_up_to!(8) at the end: Err(EndOfInput)\nread_up_to!(0) at the end: Ok([])\nread_exactly!(1) at the end: Err(UnexpectedEndOfInput)\nread_exactly!(0) at the end: Ok([])\nchunks at the end: 0\n",
+            "after growth: Ok([33, 10])\nafter growth: Ok(\"six\")\nafter growth: Err(EndOfInput)\n",
+            "first pass: \"one\"\nfirst pass: \"\"\nposition after two lines: 6\nread_exactly!(3): [255, 254, 10]\nread_until!('\\n'): Ok([102, 111, 117, 114, 13, 13, 10])\nafter seek: \"six\"\n",
+            "chunk bytes: 26 from the start, 25 from byte 1\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/file-writer.roc",
+      "cases": [
+        {
+          "name": "modes",
+          "args": [
+            "modes"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "RequireNew on a free path: \"new\n\"\nRequireNew on a file: Err(PathErr(AlreadyExists, Path.utf8(\"modes.txt\")))\nRequireNew on a directory: Err(PathErr(AlreadyExists, Path.utf8(\"a-directory\")))\nafter the refused opens: \"new\n\"\nAppend to a file: \"new\nappended\n\"\nTruncate a file: \"truncated\n\"\nTruncate without writing: \"\"\nAppend creates the file: \"first\nsecond\n\"\nTruncate creates the file: \"\"\n",
+            "missing parent, Truncate: Err(PathErr(NotFound, Path.utf8(\"no-such-directory/file.txt\")))\nmissing parent, Append: Err(PathErr(NotFound, Path.utf8(\"no-such-directory/file.txt\")))\nmissing parent, RequireNew: Err(PathErr(NotFound, Path.utf8(\"no-such-directory/file.txt\")))\nTruncate on a directory: Err(PathErr(IsADirectory, Path.utf8(\"a-directory\")))\n"
+          ]
+        },
+        {
+          "name": "buffering-flush-and-release",
+          "args": [
+            "buffering"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "inspect: File.Writer(<opaque>)\nbefore flush!: \"\"\nafter flush!: \"one,two,three\"\nafter a second flush!: \"one,two,three\"\nafter a large write: 300015 bytes, ending [120, 124]\ndropped without flush!: \"kept kept \"\ndropped by an early return: \"kept kept kept kept \"\nappended through a temporary writer: 300023 bytes, ending [101, 100]\n"
+          ]
+        },
+        {
+          "name": "write-stream-source-errors",
+          "args": [
+            "streams"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "stream without an error: Ok({})\n  wrote: \"abc\"\nstream with an error: Err(SourceErr(Boom(\"after two chunks\")))\n  wrote: \"first,second\"\ncopied 200000 bytes, equal: True\ndirect write_stream!: Err(SourceErr(Stopped))\n  wrote: \"first,second|x\"\n"
+          ]
+        },
+        {
+          "name": "with-writer",
+          "args": [
+            "with-writer"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "callback value: 42\n  flushed: \"written\"\ncallback error: Err(Refused(\"by the callback\"))\n  flushed: \"partial\"\nwriter kept by the callback: \"partial and more\"\nannotated with PathErr and FileErr only: \"name,total\napples,3\n\"\n"
+          ]
+        },
+        {
+          "name": "error-rows",
+          "args": [
+            "error-rows"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "error rows: \"value,value,qualified,qualified,method,method\"\n"
+          ]
+        },
+        {
+          "name": "error-rows-second-error",
+          "args": [
+            "error-rows",
+            "unexpected"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "exit_code": 1,
+          "contains": [
+            "Program exited with error: UnexpectedArguments"
+          ]
+        },
+        {
+          "name": "stdin-chunks",
+          "args": [
+            "stdin"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "copied from stdin: [97, 0, 255, 10]\n"
+          ],
+          "stdin_hex": "6100ff0a"
+        },
+        {
+          "name": "stdin-chunks-no-input",
+          "args": [
+            "stdin"
+          ],
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "copied from stdin: []\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/http-redirects.roc",
+      "cases": [
+        {
+          "name": "redirect-policy-and-deadlines",
+          "helper": "http",
+          "timeout": 20,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "defaults and missing Location: ok\n",
+            "method, body and framing rules: ok\n",
+            "relative URLs and cross-origin credentials: ok\n",
+            "invalid locations, limits and final status: ok\n",
+            "streaming and overall deadlines: ok\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/http-streaming.roc",
+      "cases": [
+        {
+          "name": "status-and-headers-before-body",
+          "args": [
+            "head"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "status: 404\ncontent-type: Ok(\"text/plain; charset=utf-8\")\ncontent_length: Known(13)\ninspect starts: True\ninspect hides the handle: True\n404 body: \"nothing here\n\"\nsized: 200, Known(200000)\nchunked: 200, Unknown\n"
+          ]
+        },
+        {
+          "name": "chunk-sizes-and-totals",
+          "args": [
+            "chunks"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "/stream/sized: 200000 bytes, checksum 24995206\n  more than one chunk: True, empty chunks: 0, largest within 64 KiB: True\n  chunks after the end: 0, read_to_end! after the end: Ok([])\n/stream/chunked: 300000 bytes, checksum 37494610\n  more than one chunk: True, empty chunks: 0, largest within 64 KiB: True\n  chunks after the end: 0, read_to_end! after the end: Ok([])\nfirst chunk of a dropped stream is within 64 KiB: True\n"
+          ]
+        },
+        {
+          "name": "read-to-end-limit-and-remainder",
+          "args": [
+            "read-to-end"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "MaxBytes(1000): Err(ReadLimitExceeded(1000))\nMaxBytes(199_999): Err(ReadLimitExceeded(199999))\na chunk and the remainder: 200000 bytes, checksum 24995206\nthe remainder is the larger part: True\nafter the end: Ok([])\nMaxBytes(300_000) of 300,000: 300000 bytes, checksum 37494610\nNoLimit: 300000 bytes, equal: True\n"
+          ]
+        },
+        {
+          "name": "idle-timeout-then-continue",
+          "args": [
+            "idle-timeout"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "body across the idle timeouts: \"one,two\"\ntimed out at least once: True, then ended: True\nread_to_end! across the idle timeouts: Ok(\"one,two\"), timed out at least once: True\nwith a ten second idle timeout: \"one,two\"\n"
+          ]
+        },
+        {
+          "name": "zero-timeouts",
+          "args": [
+            "zero-timeouts"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "After(Duration.zero): Err(HttpErr(Timeout))\nTimeoutMilliseconds(0) and NoTimeout: \"one,two\"\nNoTimeout and the default idle timeout: \"one,two\"\n"
+          ]
+        },
+        {
+          "name": "request-deadline-is-final",
+          "args": [
+            "deadline"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "send!: Err(HttpErr(Timeout))\nsend_streaming!: status 200 before the deadline\ndownload: Err(SourceErr(HttpErr(Timeout)))\nwritten before the deadline: \"one,\"\na new stream: [Err(HttpErr(Timeout))]\nread_to_end!: Err(HttpErr(Timeout))\n"
+          ],
+          "valgrind": false
+        },
+        {
+          "name": "broken-body-source-error",
+          "args": [
+            "broken-body"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "status: 200, Unknown\ndownload: Err(SourceErr(HttpErr(BadBody)))\nwritten before the failure: 70000 bytes, checksum 8746781\na new stream: [Err(HttpErr(BadBody))]\nread_to_end!: Err(HttpErr(BadBody))\n"
+          ]
+        },
+        {
+          "name": "download-to-disk",
+          "args": [
+            "download"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "sized.bin: 200000 bytes, checksum 24995206\nchunked.bin: 300000 bytes, checksum 37494610\n"
+          ]
+        },
+        {
+          "name": "error-rows",
+          "args": [
+            "error-rows"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "stdout_contains": [
+            "function values: \"Hello utf8\"\nqualified: \"Hello utf8\"\ninvalid URL: Err(InvalidUrl(UnsupportedScheme(\"ftp\")))\nrefused connection: Other with a message: True\n"
+          ]
+        },
+        {
+          "name": "error-rows-second-error",
+          "args": [
+            "error-rows",
+            "unexpected"
+          ],
+          "helper": "http",
+          "timeout": 15,
+          "temp_cwd": true,
+          "live_handles": 0,
+          "exit_code": 1,
+          "contains": [
+            "Program exited with error: UnexpectedArguments"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/tty-restore.roc",
+      "cases": [
+        {
+          "name": "repeated-calls",
+          "args": [
+            "repeat"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "stdin": "q",
+          "contains": [
+            "repeat: ok"
+          ]
+        },
+        {
+          "name": "error-return",
+          "args": [
+            "error"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "stdin": "q",
+          "exit_code": 1,
+          "contains": [
+            "Program exited with error: LeftInRawMode\n"
+          ]
+        },
+        {
+          "name": "exit-code",
+          "args": [
+            "exit-code"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "stdin": "q",
+          "exit_code": 3
+        },
+        {
+          "name": "crash",
+          "valgrind": false,
+          "args": [
+            "crash"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "stdin": "q",
+          "exit_code": 1,
+          "expect_crash": true,
+          "contains": [
+            "left in raw mode\n"
+          ]
+        },
+        {
+          "name": "terminated",
+          "valgrind": false,
+          "args": [
+            "error"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "send_signal": "SIGTERM"
+        },
+        {
+          "name": "hangup",
+          "platforms": {
+            "windows": {
+              "enabled": false
+            }
+          },
+          "valgrind": false,
+          "args": [
+            "error"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "send_signal": "SIGHUP"
+        },
+        {
+          "name": "no-terminal",
+          "args": [
+            "detached"
+          ],
+          "detach_terminal": true,
+          "stdout_contains": [
+            "enable failed: ",
+            "disable without enable: ok"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/resource-lifetimes/binary-file-chunks.roc",
+      "cases": [
+        {
+          "name": "chunk-streams",
+          "live_handles": 0,
+          "stdout_contains": [
+            "Binary chunk streams and resource cleanup passed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/resource-lifetimes/binary-file-reader.roc",
+      "cases": [
+        {
+          "name": "reads-and-seeks",
+          "live_handles": 0,
+          "stdout_contains": [
+            "Binary reads, seeks, and resource cleanup passed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/resource-lifetimes/filesystem-tools.roc",
+      "cases": [
+        {
+          "name": "private-workspace",
+          "live_handles": 0,
+          "stdout_contains": [
+            "Copied files in a private workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/resource-lifetimes/process-control.roc",
+      "cases": [
+        {
+          "name": "pipes-and-reuse",
+          "live_handles": 0,
+          "stdout_contains": [
+            "process control passed"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/resource-lifetimes/resource-lifetime.roc",
+      "cases": [
+        {
+          "name": "aliases-and-early-returns",
+          "live_handles": 0,
+          "stdout_contains": [
+            "Resource aliases and early returns cleaned up"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/error-rows.roc",
+      "cases": [
+        {
+          "name": "function-values",
+          "env": {
+            "ERROR_ROWS_GREETING": "hello"
+          },
+          "stdout_contains": [
+            "stdout line\nstdout write\n",
+            "random seeds: ok\n",
+            "env: hello\n",
+            "error rows: ok\n"
+          ],
+          "stderr_contains": [
+            "stderr line\nstderr write\n"
+          ]
+        },
+        {
+          "name": "second-error",
+          "args": [
+            "unexpected"
+          ],
+          "exit_code": 1,
+          "contains": [
+            "Program exited with error: UnexpectedArguments"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/signal-cleanup.roc",
+      "cases": [
+        {
+          "name": "sleep-sigint",
+          "args": [
+            "sleep"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "send_signal": "SIGINT",
+          "exit_code": 0,
+          "temp_cwd": true,
+          "contains": [
+            "cleanup complete:",
+            "Interrupt"
+          ]
+        },
+        {
+          "name": "sleep-sigterm",
+          "args": [
+            "sleep"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "send_signal": "SIGTERM",
+          "exit_code": 0,
+          "temp_cwd": true,
+          "contains": [
+            "cleanup complete:",
+            "Terminate"
+          ],
+          "platforms": {
+            "windows": {
+              "enabled": false
+            }
+          }
+        },
+        {
+          "name": "stdin-sigint",
+          "args": [
+            "stdin"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "send_signal": "SIGINT",
+          "exit_code": 0,
+          "temp_cwd": true,
+          "contains": [
+            "cleanup complete:",
+            "Interrupt"
+          ]
+        },
+        {
+          "name": "stdin-sigterm",
+          "args": [
+            "stdin"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "send_signal": "SIGTERM",
+          "exit_code": 0,
+          "temp_cwd": true,
+          "contains": [
+            "cleanup complete:",
+            "Terminate"
+          ],
+          "platforms": {
+            "windows": {
+              "enabled": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "path": "tests/server.roc",
+      "cases": [
+        {
+          "name": "serve-and-stream",
+          "live_handles": 0,
+          "stdout_contains": [
+            "GET / is the index file\n",
+            "a query is not part of a file path\n",
+            "missing files, dotfiles and parents are 404\n",
+            "a handler answers with a response built in Roc\n",
+            "a handler sees the method, the URI and the body\n",
+            "a handler that fails is a 500\n",
+            "an event stream starts with the greeting\n",
+            "a published event reaches the open stream\n",
+            "a taken port is AddrInUse\n",
+            "a missing root is BadRoot\n",
+            "a stopped server answers nothing\n",
+            "Server checks passed\n"
+          ],
+          "stderr_contains": [
+            "Server handler failed for GET /api/fail: DeliberateFailure"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/watch.roc",
+      "cases": [
+        {
+          "name": "os-events",
+          "live_handles": 0,
+          "stdout_contains": [
+            "nothing changed, nothing reported\n",
+            "an edit and a new file: Created client/catalog.roc, Modified client/app.roc\n",
+            "a new folder: Created client/Checkout/cart.roc\n",
+            "a file in the new folder: Modified client/Checkout/cart.roc\n",
+            "a rename: Created client/books.roc, Removed client/catalog.roc\n",
+            "a removed folder: Removed client/Checkout/cart.roc\n",
+            "a folder added later: Created shared/Loan.roc\n",
+            "Watch checks passed\n",
+            "relative: client/relative.roc\n"
+          ]
+        },
+        {
+          "name": "poll",
+          "args": [
+            "poll"
+          ],
+          "live_handles": 0,
+          "stdout_contains": [
+            "an edit and a new file: Created client/catalog.roc, Modified client/app.roc\n",
+            "a rename: Created client/books.roc, Removed client/catalog.roc\n",
+            "a folder added later: Created shared/Loan.roc\n",
+            "Watch checks passed\n",
+            "relative: client/relative.roc\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/terminal.roc",
+      "cases": [
+        {
+          "name": "piped",
+          "args": [
+            "piped"
+          ],
+          "stdin": "abc",
+          "stdout_contains": [
+            "piped: stdin False, stdout False, tty False\n",
+            "no size without a terminal: True\n",
+            "read within the timeout: abc\n",
+            "then the end of input\n"
+          ]
+        },
+        {
+          "name": "terminal",
+          "args": [
+            "terminal"
+          ],
+          "pty": true,
+          "await_raw_mode": true,
+          "stdin": "q",
+          "contains": [
+            "terminal: tty True, 80 by 24",
+            "nothing typed yet: True",
+            "key: q"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "tests/crypt.roc",
+      "cases": [
+        {
+          "name": "hashes",
+          "stdout_contains": [
+            "sha256 hello: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n",
+            "sha1 hello: aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d\n",
+            "sha256 of a file: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824\n",
+            "a missing file is NotFound\n"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "examples/dev-server.roc",
+      "cases": [
+        {
+          "name": "serve-until-ctrl-c",
+          "args": [
+            "."
+          ],
+          "pty": true,
+          "send_signal": "SIGINT",
+          "temp_cwd": true,
+          "exit_code": 0,
+          "contains": [
+            "Serving . on http://localhost:",
+            "Stopped"
+          ]
+        }
+      ]
+    }
+  ]
+}
