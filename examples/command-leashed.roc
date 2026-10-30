@@ -3,7 +3,7 @@
 ## down when this program ends, including on the deaths that skip cleanup such
 ## as Ctrl+C, a crash, or `kill -9`. Use it for a server or driver you
 ## supervise, so a cancelled run never leaves a stray behind.
-app [main!] { pf: platform "../platform/main.roc" }
+app [main!] { pf: platform "https://github.com/growthagent/joy-cli-platform/releases/download/0.1.0-rc1/71QJT9cSt2W6XM4ovm4w6A2PAnq9uUpzn7jxT8PiTGqX.tar.zst" }
 
 import pf.Cmd
 import pf.Duration
