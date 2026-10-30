@@ -1,8 +1,8 @@
 {
-  "version": "unreleased",
+  "version": "0.1.0-rc1",
   "compiler": "0c440e5f316f70438af984f2b548da69ab721de9",
-  "url": "https://example.invalid/joy-cli-platform-unreleased.tar.zst",
-  "hash": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "url": "https://github.com/growthagent/joy-cli-platform/releases/download/0.1.0-rc1/71QJT9cSt2W6XM4ovm4w6A2PAnq9uUpzn7jxT8PiTGqX.tar.zst",
+  "hash": "sha256-H45kYCqB619jlEKf6bzKH07qAES5Y7EFZlZx8mTF6Ds=",
   "dependencies": {
     "http": {
       "url": "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
