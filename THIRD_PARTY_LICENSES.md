@@ -653,6 +653,8 @@ for dual-licensed packages each offered license is included.
 | maybe-owned | 0.3.4 | MIT OR Apache-2.0 | all |
 | memchr | 2.7.4 | Unlicense OR MIT | all |
 | mimalloc | 0.1.52 | MIT | x64musl, arm64musl |
+| mime | 0.3.17 | MIT OR Apache-2.0 | all |
+| mime_guess | 2.0.5 | MIT | all |
 | mio | 1.0.4 | MIT | all |
 | nix | 0.31.1 | MIT | x64mac, arm64mac, x64musl, arm64musl |
 | notify | 8.2.0 | CC0-1.0 | all |
@@ -685,6 +687,7 @@ for dual-licensed packages each offered license is included.
 | tracing-attributes | 0.1.31 | MIT | all |
 | tracing-core | 0.1.34 | MIT | all |
 | try-lock | 0.2.5 | MIT | all |
+| unicase | 2.10.0 | MIT OR Apache-2.0 | all |
 | unicode-ident | 1.0.19 | (MIT OR Apache-2.0) AND Unicode-3.0 | all |
 | untrusted | 0.9.0 | ISC | all |
 | walkdir | 2.5.0 | Unlicense/MIT | all |
@@ -749,7 +752,7 @@ is licensed under:
 at your option.
 ```
 
-Applies to: ambient-authority 0.0.2 (`LICENSE-APACHE`), bitflags 2.13.0 (`LICENSE-APACHE`), cap-primitives 4.0.2 (`LICENSE-APACHE`), cfg-if 1.0.3 (`LICENSE-APACHE`), equivalent 1.0.2 (`LICENSE-APACHE`), errno 0.3.14 (`LICENSE-APACHE`), fastrand 2.5.0 (`LICENSE-APACHE`), fnv 1.0.7 (`LICENSE-APACHE`), fs-set-times 0.20.3 (`LICENSE-APACHE`), hashbrown 0.17.1 (`LICENSE-APACHE`), httparse 1.10.1 (`LICENSE-APACHE`), httpdate 1.0.3 (`LICENSE-APACHE`), hyper-rustls 0.27.6 (`LICENSE-APACHE`), indexmap 2.14.2 (`LICENSE-APACHE`), io-extras 0.19.0 (`LICENSE-APACHE`), io-lifetimes 2.0.4 (`LICENSE-APACHE`), io-lifetimes 3.0.1 (`LICENSE-APACHE`), linux-raw-sys 0.11.0 (`LICENSE-APACHE`), log 0.4.34 (`LICENSE-APACHE`), once_cell 1.21.3 (`LICENSE-APACHE`), ring 0.17.14 (`src/polyfill/once_cell/LICENSE-APACHE`), rustix 1.1.2 (`LICENSE-APACHE`), rustix-linux-procfs 0.1.1 (`LICENSE-APACHE`), rustls 0.23.45 (`LICENSE-APACHE`), signal-hook-registry 1.4.6 (`LICENSE-APACHE`), smallvec 1.15.1 (`LICENSE-APACHE`), socket2 0.5.10 (`LICENSE-APACHE`), tempfile 3.23.0 (`LICENSE-APACHE`), zeroize 1.8.2 (`LICENSE-APACHE`).
+Applies to: ambient-authority 0.0.2 (`LICENSE-APACHE`), bitflags 2.13.0 (`LICENSE-APACHE`), cap-primitives 4.0.2 (`LICENSE-APACHE`), cfg-if 1.0.3 (`LICENSE-APACHE`), equivalent 1.0.2 (`LICENSE-APACHE`), errno 0.3.14 (`LICENSE-APACHE`), fastrand 2.5.0 (`LICENSE-APACHE`), fnv 1.0.7 (`LICENSE-APACHE`), fs-set-times 0.20.3 (`LICENSE-APACHE`), hashbrown 0.17.1 (`LICENSE-APACHE`), httparse 1.10.1 (`LICENSE-APACHE`), httpdate 1.0.3 (`LICENSE-APACHE`), hyper-rustls 0.27.6 (`LICENSE-APACHE`), indexmap 2.14.2 (`LICENSE-APACHE`), io-extras 0.19.0 (`LICENSE-APACHE`), io-lifetimes 2.0.4 (`LICENSE-APACHE`), io-lifetimes 3.0.1 (`LICENSE-APACHE`), linux-raw-sys 0.11.0 (`LICENSE-APACHE`), log 0.4.34 (`LICENSE-APACHE`), mime 0.3.17 (`LICENSE-APACHE`), once_cell 1.21.3 (`LICENSE-APACHE`), ring 0.17.14 (`src/polyfill/once_cell/LICENSE-APACHE`), rustix 1.1.2 (`LICENSE-APACHE`), rustix-linux-procfs 0.1.1 (`LICENSE-APACHE`), rustls 0.23.45 (`LICENSE-APACHE`), signal-hook-registry 1.4.6 (`LICENSE-APACHE`), smallvec 1.15.1 (`LICENSE-APACHE`), socket2 0.5.10 (`LICENSE-APACHE`), tempfile 3.23.0 (`LICENSE-APACHE`), unicase 2.10.0 (`LICENSE-APACHE`), zeroize 1.8.2 (`LICENSE-APACHE`).
 
 ```text
                               Apache License
@@ -3404,6 +3407,56 @@ OTHER DEALINGS IN THE SOFTWARE.
 For more information, please refer to <http://unlicense.org/>
 ```
 
+Applies to: mime 0.3.17 (`LICENSE-MIT`).
+
+```text
+Copyright (c) 2014 Sean McArthur
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+Applies to: mime_guess 2.0.5 (`LICENSE`).
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2015 Austin Bonander
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 Applies to: mio 1.0.4 (`LICENSE`).
 
 ```text
@@ -5250,6 +5303,30 @@ Applies to: try-lock 0.2.5 (`LICENSE`).
 ```text
 Copyright (c) 2018-2023 Sean McArthur
 Copyright (c) 2016 Alex Crichton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+Applies to: unicase 2.10.0 (`LICENSE-MIT`).
+
+```text
+Copyright (c) 2014-2026 Sean McArthur
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

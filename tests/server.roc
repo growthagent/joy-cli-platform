@@ -10,9 +10,11 @@ import pf.Duration
 import pf.Env
 import pf.Events
 import pf.Http
+import pf.Monotonic
 import pf.OsStr
 import pf.Path
 import pf.Server
+import pf.Sleep
 import pf.Sse
 import pf.Stdout
 import http.Request
@@ -21,7 +23,96 @@ import http.Response
 main! : List(OsStr) => Try({}, _)
 main! = |_args| {
 	Env.with_temp_dir!(|site| serve!(site))?
+	Env.with_temp_dir!(|site| file_routes!(site))?
 	Stdout.line!("Server checks passed")
+}
+
+## One handler, which `/slow` keeps busy, so a file that arrives quickly did not
+## wait for it.
+file_routes! = |site| {
+	first = Path.join(site, "first")
+	second = Path.join(site, "second")
+	Path.create_dir!(first)?
+	Path.create_dir!(second)?
+	Path.write_utf8!(Path.join(first, "a.txt"), "a from first")?
+	Path.write_utf8!(Path.join(first, "both.txt"), "both from first")?
+	Path.write_utf8!(Path.join(second, "b.txt"), "b from second")?
+	Path.write_utf8!(Path.join(second, "both.txt"), "both from second")?
+
+	roots = [{ name: "first", path: first, cache: Revalidate }, { name: "second", path: second, cache: Revalidate }]
+	server = Server.start!(
+		{
+			handlers: 1,
+			roots,
+			file_routes: [
+				{ path: "/files", roots: ["first", "second"], miss: NotFound, download: False },
+				{ path: "/static/", roots: ["first"], miss: AskHandler, download: False },
+				{ path: "/saved", roots: ["first"], miss: NotFound, download: True },
+			],
+		},
+		|request| {
+			if Request.uri(request) == "/slow" {
+				_ = Sleep.millis!(2_000)
+			}
+			Ok(Server.respond(Response.from_status(200).with_body(Str.to_utf8("handler ${Request.method_str(request)} ${Request.uri(request)}"))))
+		},
+	)?
+	base = "http://localhost:${U16.to_str(server.port())}"
+
+	# The request gives up at once, and leaves the only handler busy.
+	_ = Http.send_streaming!(Request.from_method(GET).with_uri("${base}/slow"), { idle_timeout: After(Duration.millis(100)) })
+	started = Monotonic.now!()
+	busy = get!("${base}/files/a.txt")?
+	took = Monotonic.since(Monotonic.now!(), started).to_millis()
+	expect Str.from_utf8(Response.body(busy)) == Ok("a from first")
+	expect took < 1_000
+	Stdout.line!("a file route answers while every handler is busy")?
+
+	later = get!("${base}/files/b.txt")?
+	both = get!("${base}/files/both.txt")?
+	expect Str.from_utf8(Response.body(later)) == Ok("b from second")
+	expect Str.from_utf8(Response.body(both)) == Ok("both from first")
+	expect header(both, "content-disposition") == Err(Missing("content-disposition"))
+	Stdout.line!("a file route tries its roots in order")?
+
+	missing = get!("${base}/files/none.txt")?
+	bare = get!("${base}/files")?
+	folder = get!("${base}/files/")?
+	posted = Http.send!(Request.from_method(POST).with_uri("${base}/files/a.txt"), {})?
+	expect [missing, bare, folder, posted].map(Response.status) == [404, 404, 404, 405]
+	Stdout.line!("a route that owns its path answers 404 and 405 itself")?
+
+	found = get!("${base}/static/a.txt")?
+	asked = get!("${base}/static/none.txt")?
+	asked_folder = get!("${base}/static/")?
+	asked_post = Http.send!(Request.from_method(POST).with_uri("${base}/static/a.txt"), {})?
+	beside = get!("${base}/filesx/a.txt")?
+	expect Str.from_utf8(Response.body(found)) == Ok("a from first")
+	expect Str.from_utf8(Response.body(asked)) == Ok("handler GET /static/none.txt")
+	expect Str.from_utf8(Response.body(asked_folder)) == Ok("handler GET /static/")
+	expect Str.from_utf8(Response.body(asked_post)) == Ok("handler POST /static/a.txt")
+	expect Str.from_utf8(Response.body(beside)) == Ok("handler GET /filesx/a.txt")
+	Stdout.line!("a route that asks the handler passes on what no file answers")?
+
+	saved = get!("${base}/saved/a.txt")?
+	saved_missing = get!("${base}/saved/none.txt")?
+	expect Str.from_utf8(Response.body(saved)) == Ok("a from first")
+	expect header(saved, "content-disposition") == Ok("attachment; filename*=UTF-8''a.txt")
+	expect Response.status(saved_missing) == 404
+	expect header(saved_missing, "content-disposition") == Err(Missing("content-disposition"))
+	Stdout.line!("a download route names the file")?
+
+	Server.stop!(server)
+
+	no_root = Server.start!({ file_routes: [{ path: "/files", roots: ["gone"], miss: NotFound, download: False }] }, |_| Ok(Server.respond(Response.from_status(204))))
+	no_slash = Server.start!({ roots, file_routes: [{ path: "files", roots: ["first"], miss: NotFound, download: False }] }, |_| Ok(Server.respond(Response.from_status(204))))
+	match (no_root, no_slash) {
+		(Err(BadConfig(_)), Err(BadConfig(_))) => Stdout.line!("a file route must name a root and start with /")?
+		_ => {
+			return Err(ExpectedBadConfig)
+		}
+	}
+	Ok({})
 }
 
 serve! = |site| {

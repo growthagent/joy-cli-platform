@@ -15,10 +15,18 @@ InternalServer :: [].{
 		max_age_seconds : U32,
 	}
 
+	FileRouteToHost : {
+		path : Str,
+		roots : List(Str),
+		asks_handler : Bool,
+		download : Bool,
+	}
+
 	ConfigToHost : {
 		host : Str,
 		port : U16,
 		roots : List(RootToHost),
+		file_routes : List(FileRouteToHost),
 		max_body_bytes : U64,
 		handlers : U16,
 	}

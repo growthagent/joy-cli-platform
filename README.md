@@ -39,6 +39,12 @@ it to `Http.send!` as it is, and answers with one of:
 
 A handler that returns `Err` is logged to stderr and answered with a 500.
 
+`file_routes` in the config has the host answer paths from roots by itself,
+before any handler runs, so a file never waits behind requests the handlers are
+busy with. A route tries its `roots` in order. With `miss: NotFound` it owns its
+path, and with `miss: AskHandler` what no file answers goes to the handler.
+`download: Bool` answers each file as a download.
+
 ### Events
 
 `Events.publish!` sends a frame to every open stream at once, and returns

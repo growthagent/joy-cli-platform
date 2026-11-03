@@ -1521,24 +1521,26 @@ const _: () = assert!(core::mem::size_of::<AnonStructCb49f9579cbbf27>() == 16, "
 #[cfg(target_pointer_width = "32")]
 const _: () = assert!(core::mem::align_of::<AnonStructCb49f9579cbbf27>() == 8, "AnonStructCb49f9579cbbf27 alignment mismatch");
 
-/// Element type for __AnonStruct_69964df4ed722ee8
+/// Element type for __AnonStruct_70250a7b2a218ecc
 #[cfg(target_pointer_width = "32")]
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct AnonStruct69964df4ed722ee8 {
+pub struct AnonStruct70250a7b2a218ecc {
     pub max_body_bytes: u64,
+    pub file_routes: RocList<AnonStructC93730caf65ba732>,
     pub host: RocStr,
     pub roots: RocList<AnonStructB169d1433549ad3>,
     pub handlers: u16,
     pub port: u16,
 }
 
-/// Element type for __AnonStruct_69964df4ed722ee8
+/// Element type for __AnonStruct_70250a7b2a218ecc
 #[cfg(not(target_pointer_width = "32"))]
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct AnonStruct69964df4ed722ee8 {
+pub struct AnonStruct70250a7b2a218ecc {
     pub max_body_bytes: u64,
+    pub file_routes: RocList<AnonStructC93730caf65ba732>,
     pub host: RocStr,
     pub roots: RocList<AnonStructB169d1433549ad3>,
     pub handlers: u16,
@@ -1546,13 +1548,44 @@ pub struct AnonStruct69964df4ed722ee8 {
 }
 
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<AnonStruct69964df4ed722ee8>() == 64, "AnonStruct69964df4ed722ee8 size mismatch");
+const _: () = assert!(core::mem::size_of::<AnonStruct70250a7b2a218ecc>() == 88, "AnonStruct70250a7b2a218ecc size mismatch");
 #[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::align_of::<AnonStruct69964df4ed722ee8>() == 8, "AnonStruct69964df4ed722ee8 alignment mismatch");
+const _: () = assert!(core::mem::align_of::<AnonStruct70250a7b2a218ecc>() == 8, "AnonStruct70250a7b2a218ecc alignment mismatch");
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<AnonStruct69964df4ed722ee8>() == 40, "AnonStruct69964df4ed722ee8 size mismatch");
+const _: () = assert!(core::mem::size_of::<AnonStruct70250a7b2a218ecc>() == 48, "AnonStruct70250a7b2a218ecc size mismatch");
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::align_of::<AnonStruct69964df4ed722ee8>() == 8, "AnonStruct69964df4ed722ee8 alignment mismatch");
+const _: () = assert!(core::mem::align_of::<AnonStruct70250a7b2a218ecc>() == 8, "AnonStruct70250a7b2a218ecc alignment mismatch");
+
+/// Element type for __AnonStruct_c93730caf65ba732
+#[cfg(target_pointer_width = "32")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct AnonStructC93730caf65ba732 {
+    pub path: RocStr,
+    pub roots: RocList<RocStr>,
+    pub asks_handler: bool,
+    pub download: bool,
+}
+
+/// Element type for __AnonStruct_c93730caf65ba732
+#[cfg(not(target_pointer_width = "32"))]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct AnonStructC93730caf65ba732 {
+    pub path: RocStr,
+    pub roots: RocList<RocStr>,
+    pub asks_handler: bool,
+    pub download: bool,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(core::mem::size_of::<AnonStructC93730caf65ba732>() == 56, "AnonStructC93730caf65ba732 size mismatch");
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(core::mem::align_of::<AnonStructC93730caf65ba732>() == 8, "AnonStructC93730caf65ba732 alignment mismatch");
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(core::mem::size_of::<AnonStructC93730caf65ba732>() == 28, "AnonStructC93730caf65ba732 size mismatch");
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(core::mem::align_of::<AnonStructC93730caf65ba732>() == 4, "AnonStructC93730caf65ba732 alignment mismatch");
 
 /// Element type for __AnonStruct_b169d1433549ad3
 #[cfg(target_pointer_width = "32")]
@@ -12681,12 +12714,12 @@ pub struct HostPathTypeArgs {
 }
 
 /// Arguments for Host.server_start!
-/// Roc signature: { handlers : U16, host : Str, max_body_bytes : U64, port : U16, roots : List({ cache : U8, max_age_seconds : U32, name : Str, path : [UnixBytes(List(U8)), Utf8(Str), WindowsU16s(List(U16))] }) }, InternalServer.Handler => Try({ id : U64, port : U16 }, [BadConfig(Str), BadRoot(Str, IOErr), ServerErr(IOErr)])
+/// Roc signature: { file_routes : List({ asks_handler : Bool, download : Bool, path : Str, roots : List(Str) }), handlers : U16, host : Str, max_body_bytes : U64, port : U16, roots : List({ cache : U8, max_age_seconds : U32, name : Str, path : [UnixBytes(List(U8)), Utf8(Str), WindowsU16s(List(U16))] }) }, InternalServer.Handler => Try({ id : U64, port : U16 }, [BadConfig(Str), BadRoot(Str, IOErr), ServerErr(IOErr)])
 /// Refcounted fields are owned by the hosted function.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct HostServerStartArgs {
-    pub arg0: AnonStruct69964df4ed722ee8,
+    pub arg0: AnonStruct70250a7b2a218ecc,
     pub arg1: RocErasedCallable,
 }
 
@@ -13181,7 +13214,8 @@ pub type HostPathSymlinkResult = HostEnvSetCwdResult;
 pub type HostPathSymlinkResultPayload = HostEnvSetCwdResultPayload;
 pub type HostPathSymlinkResultTag = HostEnvSetCwdResultTag;
 pub type HostPathTypeOk = DirOrFileOrOtherOrSymLink;
-pub type HostServerStartArg0 = AnonStruct69964df4ed722ee8;
+pub type HostServerStartArg0 = AnonStruct70250a7b2a218ecc;
+pub type HostServerStartArg0FileRoutes = AnonStructC93730caf65ba732;
 pub type HostServerStartArg0Roots = AnonStructB169d1433549ad3;
 pub type HostServerStartErr = BadConfigOrBadRootOrServerErr;
 pub type HostServerStartErrPayload = BadConfigOrBadRootOrServerErrPayload;
@@ -17665,13 +17699,14 @@ unsafe impl RocRelease<AnonStructCb49f9579cbbf27> for AnonStructCb49f9579cbbf27R
     }
 }
 
-impl AnonStruct69964df4ed722ee8 {
+impl AnonStruct70250a7b2a218ecc {
     /// Recursively decrement Roc-owned fields.
     ///
     /// # Safety
     /// `self` must own one live Roc reference for each refcounted field.
     pub unsafe fn decref(self, roc_host: &RocHost) {
         let value = self;
+        unsafe { decref_list_of_anon_struct_c93730caf65ba732(value.file_routes, roc_host); }
         unsafe { value.host.decref(roc_host); }
         unsafe { decref_list_of_anon_struct_b169d1433549ad3(value.roots, roc_host); }
     }
@@ -17683,15 +17718,47 @@ impl AnonStruct69964df4ed722ee8 {
     /// be balanced by later decrefs.
     pub unsafe fn incref(self, amount: isize) {
         let value = self;
+        unsafe { value.file_routes.incref(amount); }
         unsafe { value.host.incref(amount); }
         unsafe { value.roots.incref(amount); }
     }
 }
 
-pub struct AnonStruct69964df4ed722ee8Release;
+pub struct AnonStruct70250a7b2a218eccRelease;
 
-unsafe impl RocRelease<AnonStruct69964df4ed722ee8> for AnonStruct69964df4ed722ee8Release {
-    unsafe fn release(value: AnonStruct69964df4ed722ee8, roc_host: &RocHost) {
+unsafe impl RocRelease<AnonStruct70250a7b2a218ecc> for AnonStruct70250a7b2a218eccRelease {
+    unsafe fn release(value: AnonStruct70250a7b2a218ecc, roc_host: &RocHost) {
+        unsafe { value.decref(roc_host); }
+    }
+}
+
+impl AnonStructC93730caf65ba732 {
+    /// Recursively decrement Roc-owned fields.
+    ///
+    /// # Safety
+    /// `self` must own one live Roc reference for each refcounted field.
+    pub unsafe fn decref(self, roc_host: &RocHost) {
+        let value = self;
+        unsafe { value.path.decref(roc_host); }
+        unsafe { decref_list_of_str(value.roots, roc_host); }
+    }
+
+    /// Increment Roc-owned fields.
+    ///
+    /// # Safety
+    /// `self` must point at live Roc allocations. The retained references must
+    /// be balanced by later decrefs.
+    pub unsafe fn incref(self, amount: isize) {
+        let value = self;
+        unsafe { value.path.incref(amount); }
+        unsafe { value.roots.incref(amount); }
+    }
+}
+
+pub struct AnonStructC93730caf65ba732Release;
+
+unsafe impl RocRelease<AnonStructC93730caf65ba732> for AnonStructC93730caf65ba732Release {
+    unsafe fn release(value: AnonStructC93730caf65ba732, roc_host: &RocHost) {
         unsafe { value.decref(roc_host); }
     }
 }
@@ -18439,15 +18506,15 @@ pub unsafe fn decref_list_of_anon_struct69eee2ff6c448fed(value: RocList<AnonStru
     unsafe { value.release_with::<AnonStruct69eee2ff6c448fedRelease>(roc_host); }
 }
 
-/// Release one owned reference to a `RocList<AnonStructB169d1433549ad3>`.
+/// Release one owned reference to a `RocList<AnonStructC93730caf65ba732>`.
 ///
 /// The allocation's final reference is claimed atomically before any element
 /// is read, so concurrent owners cannot skip or duplicate element teardown.
 ///
 /// # Safety
 /// `value` must own one live Roc list reference.
-pub unsafe fn decref_list_of_anon_struct_b169d1433549ad3(value: RocList<AnonStructB169d1433549ad3>, roc_host: &RocHost) {
-    unsafe { value.release_with::<AnonStructB169d1433549ad3Release>(roc_host); }
+pub unsafe fn decref_list_of_anon_struct_c93730caf65ba732(value: RocList<AnonStructC93730caf65ba732>, roc_host: &RocHost) {
+    unsafe { value.release_with::<AnonStructC93730caf65ba732Release>(roc_host); }
 }
 
 /// Release one owned reference to a `RocList<RocStr>`.
@@ -18459,6 +18526,17 @@ pub unsafe fn decref_list_of_anon_struct_b169d1433549ad3(value: RocList<AnonStru
 /// `value` must own one live Roc list reference.
 pub unsafe fn decref_list_of_str(value: RocList<RocStr>, roc_host: &RocHost) {
     unsafe { value.release_with::<RocStrRelease>(roc_host); }
+}
+
+/// Release one owned reference to a `RocList<AnonStructB169d1433549ad3>`.
+///
+/// The allocation's final reference is claimed atomically before any element
+/// is read, so concurrent owners cannot skip or duplicate element teardown.
+///
+/// # Safety
+/// `value` must own one live Roc list reference.
+pub unsafe fn decref_list_of_anon_struct_b169d1433549ad3(value: RocList<AnonStructB169d1433549ad3>, roc_host: &RocHost) {
+    unsafe { value.release_with::<AnonStructB169d1433549ad3Release>(roc_host); }
 }
 
 /// Release one owned reference to a `RocList<AnonStruct9f7893148a09d24>`.
@@ -19121,13 +19199,13 @@ unsafe extern "C" {
     pub fn hosted_random_seed_u64() -> HostRandomSeedU64Result;
 
     /// Hosted symbol for Host.server_start!
-    /// Roc signature: { handlers : U16, host : Str, max_body_bytes : U64, port : U16, roots : List({ cache : U8, max_age_seconds : U32, name : Str, path : [UnixBytes(List(U8)), Utf8(Str), WindowsU16s(List(U16))] }) }, InternalServer.Handler => Try({ id : U64, port : U16 }, [BadConfig(Str), BadRoot(Str, IOErr), ServerErr(IOErr)])
+    /// Roc signature: { file_routes : List({ asks_handler : Bool, download : Bool, path : Str, roots : List(Str) }), handlers : U16, host : Str, max_body_bytes : U64, port : U16, roots : List({ cache : U8, max_age_seconds : U32, name : Str, path : [UnixBytes(List(U8)), Utf8(Str), WindowsU16s(List(U16))] }) }, InternalServer.Handler => Try({ id : U64, port : U16 }, [BadConfig(Str), BadRoot(Str, IOErr), ServerErr(IOErr)])
     /// Owned arguments. Release each exactly once before returning, unless it is
     /// moved into storage or into the result:
     ///     unsafe { arg0.decref(roc_host); }
     ///     unsafe { decref_erased_callable(arg1, roc_host); }
     /// The result is owned by Roc: return exactly one owned reference.
-    pub fn hosted_server_start(arg0: AnonStruct69964df4ed722ee8, arg1: RocErasedCallable) -> HostServerStartResult;
+    pub fn hosted_server_start(arg0: AnonStruct70250a7b2a218ecc, arg1: RocErasedCallable) -> HostServerStartResult;
 
     /// Hosted symbol for Host.server_stop!
     /// Roc signature: U64 => {}

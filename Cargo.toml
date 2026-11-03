@@ -1,6 +1,6 @@
 [package]
 name = "roc_host"
-version = "0.1.0-rc1"
+version = "0.1.0-rc2"
 authors = ["The Roc Contributors"]
 edition = "2021"
 rust-version = "1.97"
@@ -31,10 +31,11 @@ tokio = { version = "=1.45.0", default-features = false, features = ["rt", "net"
 bytes = "=1.12.1"
 tower-service = "=0.3.3"
 
-# The dev server: file roots opened one component at a time, HTTP dates, and
-# hashing with the same ring the TLS stack uses.
+# The dev server: file roots opened one component at a time, HTTP dates, the
+# content type of a file, and hashing with the same ring the TLS stack uses.
 cap-primitives = "=4.0.2"
 httpdate = "=1.0.3"
+mime_guess = { version = "=2.0.5", default-features = false }
 ring = "=0.17.14"
 
 # Watching files: inotify on Linux, kqueue on macOS, ReadDirectoryChangesW on
