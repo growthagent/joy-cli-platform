@@ -137,6 +137,10 @@ impl FileService {
         })
     }
 
+    pub(crate) fn has_root(&self, name: &str) -> bool {
+        self.roots.contains_key(name)
+    }
+
     pub(crate) async fn serve(
         &self,
         plan: FilePlan,
@@ -546,7 +550,7 @@ fn representation_headers(
         CONTENT_TYPE,
         content_type(relative)
             .parse()
-            .expect("static content type is a valid header"),
+            .expect("a content type from the table is a valid header"),
     );
     headers.insert(
         ETAG,
@@ -564,39 +568,34 @@ fn representation_headers(
     headers
 }
 
-fn content_type(relative: &str) -> &'static str {
+/// The type of a file, by its extension alone and never by what it holds, so an
+/// upload cannot make itself a web page. An app can serve any kind of file, so
+/// the types come from `mime_guess`'s table. Listed here are the ones a browser
+/// insists on, or that the table lacks. What nobody knows is a download.
+fn content_type(relative: &str) -> String {
     let extension = relative
         .rsplit('/')
         .next()
         .and_then(|name| name.rsplit_once('.').map(|(_, extension)| extension))
         .unwrap_or("")
         .to_ascii_lowercase();
-    match extension.as_str() {
-        "avif" => "image/avif",
-        "css" => "text/css; charset=utf-8",
-        "csv" => "text/csv; charset=utf-8",
-        "gif" => "image/gif",
-        "htm" | "html" => "text/html; charset=utf-8",
-        "ico" => "image/x-icon",
-        "jpeg" | "jpg" => "image/jpeg",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "json" => "application/json",
+    let known = match extension.as_str() {
+        "js" | "mjs" => "text/javascript",
+        "m4a" => "audio/mp4",
         "map" => "application/json",
-        "mp4" => "video/mp4",
+        "mobileconfig" => "application/x-apple-aspen-config",
         "otf" => "font/otf",
-        "pdf" => "application/pdf",
-        "png" => "image/png",
-        "svg" => "image/svg+xml",
-        "ttf" => "font/ttf",
-        "txt" => "text/plain; charset=utf-8",
         "wasm" => "application/wasm",
-        "webm" => "video/webm",
         "webmanifest" => "application/manifest+json",
-        "webp" => "image/webp",
         "woff" => "font/woff",
-        "woff2" => "font/woff2",
-        "xml" => "application/xml",
-        _ => "application/octet-stream",
+        other => mime_guess::from_ext(other)
+            .first_raw()
+            .unwrap_or("application/octet-stream"),
+    };
+    if known.starts_with("text/") {
+        format!("{known}; charset=utf-8")
+    } else {
+        known.to_owned()
     }
 }
 
@@ -768,6 +767,74 @@ fn parse_range(headers: &HeaderMap, length: u64) -> RangeSelection {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn content_types_cover_the_files_apps_serve() {
+        let wrong: Vec<(&str, &str, String)> = [
+            // Pages and what they load.
+            ("index.html", "text/html; charset=utf-8"),
+            ("site.css", "text/css; charset=utf-8"),
+            ("app.js", "text/javascript; charset=utf-8"),
+            ("app.mjs", "text/javascript; charset=utf-8"),
+            ("app.wasm", "application/wasm"),
+            ("app.js.map", "application/json"),
+            ("data.json", "application/json"),
+            ("site.webmanifest", "application/manifest+json"),
+            ("profile.mobileconfig", "application/x-apple-aspen-config"),
+            // Fonts and images.
+            ("a.woff2", "font/woff2"),
+            ("a.woff", "font/woff"),
+            ("a.ttf", "font/ttf"),
+            ("a.otf", "font/otf"),
+            ("a.png", "image/png"),
+            ("a.jpg", "image/jpeg"),
+            ("a.jpeg", "image/jpeg"),
+            ("a.gif", "image/gif"),
+            ("a.svg", "image/svg+xml"),
+            ("a.webp", "image/webp"),
+            ("a.avif", "image/avif"),
+            ("a.bmp", "image/bmp"),
+            ("a.tiff", "image/tiff"),
+            // Video and sound.
+            ("a.mp4", "video/mp4"),
+            ("a.webm", "video/webm"),
+            ("a.mov", "video/quicktime"),
+            ("a.mkv", "video/x-matroska"),
+            ("a.mp3", "audio/mpeg"),
+            ("a.wav", "audio/wav"),
+            ("a.ogg", "audio/ogg"),
+            // Documents and archives.
+            ("a.pdf", "application/pdf"),
+            ("a.txt", "text/plain; charset=utf-8"),
+            ("a.csv", "text/csv; charset=utf-8"),
+            ("a.md", "text/markdown; charset=utf-8"),
+            ("a.xml", "text/xml; charset=utf-8"),
+            ("a.doc", "application/msword"),
+            (
+                "a.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            ("a.zip", "application/zip"),
+            ("a.tar", "application/x-tar"),
+            ("a.gz", "application/gzip"),
+            ("a.rtf", "application/rtf"),
+            ("a.ics", "text/calendar; charset=utf-8"),
+            ("a.heic", "image/heic"),
+            ("a.m4a", "audio/mp4"),
+            // The case of the extension and the folders do not matter.
+            ("a.MP4", "video/mp4"),
+            ("some.folder/a.png", "image/png"),
+            // What nobody knows is a download, however it looks.
+            ("a.unknownext", "application/octet-stream"),
+            ("noextension", "application/octet-stream"),
+            ("some.folder/noextension", "application/octet-stream"),
+        ]
+        .into_iter()
+        .map(|(file, expected)| (file, expected, content_type(file)))
+        .filter(|(_, expected, found)| expected != found)
+        .collect();
+        assert!(wrong.is_empty(), "wrong content types: {wrong:#?}");
+    }
 
     fn service(root: &Path) -> FileService {
         FileService::activate(vec![FileRootSpec {
