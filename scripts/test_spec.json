@@ -1509,6 +1509,12 @@
             "a taken port is AddrInUse\n",
             "a missing root is BadRoot\n",
             "a stopped server answers nothing\n",
+            "a file route answers while every handler is busy\n",
+            "a file route tries its roots in order\n",
+            "a route that owns its path answers 404 and 405 itself\n",
+            "a route that asks the handler passes on what no file answers\n",
+            "a download route names the file\n",
+            "a file route must name a root and start with /\n",
             "Server checks passed\n"
           ],
           "stderr_contains": [

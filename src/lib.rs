@@ -18,6 +18,7 @@ mod crypt;
 mod dns;
 mod events;
 mod file_reader;
+mod file_routes;
 mod file_security;
 mod file_server;
 mod file_writer;

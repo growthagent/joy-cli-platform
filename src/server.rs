@@ -11,6 +11,7 @@
 //! stops whatever is still running.
 
 use crate::events;
+use crate::file_routes::{FileRouteSpec, FileRoutes, Miss};
 use crate::file_server::{CachePolicy, FilePlan, FileRootSpec, FileService, RootError};
 use crate::roc_platform_abi::*;
 use bytes::Bytes;
@@ -32,8 +33,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, watch};
 pub(crate) type ServerBody = UnsyncBoxBody<Bytes, io::Error>;
 pub(crate) type ServerResponse = hyper::Response<ServerBody>;
 
-pub(crate) type RocServerConfig = AnonStruct69964df4ed722ee8;
+pub(crate) type RocServerConfig = AnonStruct70250a7b2a218ecc;
 type RocRoot = AnonStructB169d1433549ad3;
+type RocFileRoute = AnonStructC93730caf65ba732;
 type RocRequest = AnonStruct8bbc5017d7a8cb36;
 type RocHeader = AnonStruct77eaba63dfee299d;
 type RocReplyTag = FailedOrFileOrRespondOrStreamTag;
@@ -60,6 +62,7 @@ pub(crate) struct Config {
     host: String,
     port: u16,
     roots: Vec<FileRootSpec>,
+    file_routes: Vec<FileRouteSpec>,
     max_body_bytes: u64,
     handlers: usize,
 }
@@ -104,14 +107,35 @@ pub(crate) fn config_from_roc(
             cache,
         });
     }
+    let file_routes = config
+        .file_routes
+        .as_slice()
+        .iter()
+        .map(|route: &RocFileRoute| FileRouteSpec {
+            path: route.path.as_str().to_owned(),
+            roots: route
+                .roots
+                .as_slice()
+                .iter()
+                .map(|root| root.as_str().to_owned())
+                .collect(),
+            miss: if route.asks_handler {
+                Miss::AskHandler
+            } else {
+                Miss::NotFound
+            },
+            download: route.download,
+        })
+        .collect();
     let parsed = Config {
         host,
         port: config.port,
         roots,
+        file_routes,
         max_body_bytes: config.max_body_bytes,
         handlers: usize::from(config.handlers),
     };
-    unsafe { <AnonStruct69964df4ed722ee8Release as RocRelease<_>>::release(config, roc_host) };
+    unsafe { <AnonStruct70250a7b2a218eccRelease as RocRelease<_>>::release(config, roc_host) };
     match problem {
         Some(problem) => Err(StartError::Config(problem)),
         None if parsed.handlers == 0 => Err(StartError::Config(
@@ -311,6 +335,7 @@ struct Shared {
     handler: Arc<RocHandler>,
     pool: Pool,
     files: FileService,
+    file_routes: FileRoutes,
     max_body_bytes: u64,
     stopping: watch::Receiver<bool>,
 }
@@ -352,6 +377,8 @@ pub(crate) fn start(config: Config, handler: RocHandler) -> Result<(u64, u16), S
         RootError::Config(problem) => StartError::Config(problem),
         RootError::Root(name, error) => StartError::Root(name, error),
     })?;
+    let file_routes =
+        FileRoutes::activate(config.file_routes, &files).map_err(StartError::Config)?;
     let address = resolve(&config.host, config.port)?;
     let listener = std::net::TcpListener::bind(address).map_err(StartError::Bind)?;
     listener.set_nonblocking(true).map_err(StartError::Bind)?;
@@ -368,6 +395,7 @@ pub(crate) fn start(config: Config, handler: RocHandler) -> Result<(u64, u16), S
         handler: Arc::new(handler),
         pool,
         files,
+        file_routes,
         max_body_bytes: config.max_body_bytes,
         stopping: stopping.clone(),
     });
@@ -509,6 +537,9 @@ async fn handle(
     shared: Arc<Shared>,
 ) -> Result<ServerResponse, std::convert::Infallible> {
     let (parts, body) = request.into_parts();
+    if let Some(response) = shared.file_routes.answer(&shared.files, &parts).await {
+        return Ok(response);
+    }
     let limit = usize::try_from(shared.max_body_bytes).unwrap_or(usize::MAX);
     let body = match Limited::new(body, limit).collect().await {
         Ok(collected) => collected.to_bytes(),

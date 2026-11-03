@@ -41,8 +41,21 @@ Server :: { id : U64, port : U16 }.{
 	## links, and no path component may start with a dot.
 	Root : { name : Str, path : Path, cache : Cache }
 
-	## Where the server listens, which folders it serves files from, how large
-	## a request body may be, and how many handlers may run at once.
+	## A path the host answers from roots by itself, before any handler runs, so
+	## a file never waits behind requests the handlers are busy with.
+	##
+	## A `GET` or `HEAD` below `path` gets the file from the first of `roots` that
+	## has it, by its path below `path`. `miss` says what happens otherwise:
+	## `NotFound` owns the path, so no request below it reaches a handler, with a
+	## 404 for a missing file and a 405 for any other method. `AskHandler` passes
+	## those requests, and paths that name a folder, on to the handler.
+	## `download` answers each file as a download, named after the last part of
+	## its path.
+	FileRoute : { path : Str, roots : List(Str), miss : [NotFound, AskHandler], download : Bool }
+
+	## Where the server listens, which folders it serves files from, what the
+	## host answers from them by itself, how large a request body may be, and
+	## how many handlers may run at once.
 	##
 	## Port 0 asks the system for a free port, which [port] then reports.
 	## `"localhost"` listens on 127.0.0.1.
@@ -50,6 +63,7 @@ Server :: { id : U64, port : U16 }.{
 		host : Str ?? "localhost",
 		port : U16 ?? 0,
 		roots : List(Root) ?? [],
+		file_routes : List(FileRoute) ?? [],
 		max_body_bytes : U64 ?? 16_777_216,
 		handlers : U16 ?? 4,
 	}
@@ -129,6 +143,9 @@ to_host_config = |config| {
 			(cache, max_age_seconds) = cache_to_host(root.cache)
 			{ name: root.name, path: Path.to_raw(root.path), cache, max_age_seconds }
 		},
+	),
+	file_routes: config.file_routes.map(
+		|route| { path: route.path, roots: route.roots, asks_handler: route.miss == AskHandler, download: route.download },
 	),
 	max_body_bytes: config.max_body_bytes,
 	handlers: config.handlers,
