@@ -41,7 +41,7 @@ mod tests {
         println!("allocator ABI alignment and realloc checks complete");
     }
 
-    // scripts/test_musl_allocator.py traces this exact test on a native Linux
+    // scripts/test_musl_allocator.roc traces this exact test on a native Linux
     // musl executable. Exercise the real Roc callback table, including the
     // metadata prefix and typed-handle dispatch used by compiled applications.
     #[cfg(all(target_os = "linux", target_env = "musl"))]

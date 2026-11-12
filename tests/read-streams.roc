@@ -1,4 +1,4 @@
-## Print what `Stdin` and `File.Reader` reads return, so that scripts/test.py
+## Print what `Stdin` and `File.Reader` reads return, so that scripts/test.roc
 ## can check the end-of-input and line rules and that streams lose no input.
 app [main!] { pf: platform "../platform/main.roc" }
 

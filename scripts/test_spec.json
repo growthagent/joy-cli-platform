@@ -114,7 +114,7 @@
             "Status again: Exited(1)\nFailed: cat non_existent.txt\nBytes: [72, 105, 10]\nNot installed: definitely-not-a-real-command-xyz\n"
           ],
           "stderr_regex": [
-            "^cat: .*non_existent\\.txt"
+            "^cat: .*non\\_existent\\.txt"
           ]
         }
       ]
@@ -354,7 +354,7 @@
           "name": "happy",
           "live_handles": 0,
           "regex": [
-            "Done reading file: \\{ lines_read: [0-9]+, longest_line_bytes: [0-9]+ \\}"
+            "Done reading file: \\{ lines\\_read: [0-9]+, longest\\_line\\_bytes: [0-9]+ \\}"
           ]
         }
       ]
@@ -728,9 +728,12 @@
           "name": "successful-build",
           "live_handles": 0,
           "args": [
-            "{python}",
-            "-c",
-            "import sys; print(\"compiling\"); print(\"warning: example\", file=sys.stderr)"
+            "{helper}",
+            "emit",
+            "--stdout",
+            "compiling",
+            "--stderr",
+            "warning: example"
           ],
           "stdout_contains": [
             "compiling",
@@ -744,9 +747,10 @@
           "name": "failed-build",
           "live_handles": 0,
           "args": [
-            "{python}",
-            "-c",
-            "raise SystemExit(7)"
+            "{helper}",
+            "emit",
+            "--exit",
+            "7"
           ],
           "exit_code": 1,
           "contains": [
@@ -1501,6 +1505,7 @@
             "GET / is the index file\n",
             "a query is not part of a file path\n",
             "missing files, dotfiles and parents are 404\n",
+            "a handler's header replaces the file's, and a 404 keeps none\n",
             "a handler answers with a response built in Roc\n",
             "a handler sees the method, the URI and the body\n",
             "a handler that fails is a 500\n",

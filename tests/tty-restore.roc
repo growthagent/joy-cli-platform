@@ -1,4 +1,4 @@
-## Leave the terminal in raw mode in different ways, so that scripts/test.py can
+## Leave the terminal in raw mode in different ways, so that scripts/test.roc can
 ## check the platform hands it back in the state it was found.
 app [main!] { pf: platform "../platform/main.roc" }
 

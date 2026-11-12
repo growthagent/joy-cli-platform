@@ -5,10 +5,33 @@ It derives from [basic-cli](https://github.com/roc-lang/basic-cli) 0.30, with
 file serving, server-sent events and hashing from
 [basic-webserver](https://github.com/roc-lang/basic-webserver).
 
+## Upstream
+
+The first commit is basic-cli at `773b6f3f0d295e071cc92eed8b8b5f3a6ba71e0c`
+(the 0.30.0 release, on `niclas-ahden/basic-cli` main) with the additions on
+top. To take a later basic-cli change, diff upstream from that commit and
+apply what touches the files below.
+
+- Ours alone: `src/server.rs`, `src/file_server.rs`, `src/file_routes.rs`,
+  `src/events.rs`, `src/watch.rs`, `src/crypt.rs` and `platform/Server.roc`,
+  `InternalServer.roc`, `Sse.roc`, `Events.roc`, `Watch.roc`,
+  `InternalWatch.roc`, `Crypt.roc`.
+- Changed from basic-cli: `src/lib.rs`, `src/tty.rs`, `src/native_stdio.rs`,
+  `src/resources.rs`, `src/dns.rs`, and `platform/main.roc`, `Host.roc`,
+  `Tty.roc`, `Stdin.roc`, `Http.roc`, `InternalHttp.roc`, `Env.roc`,
+  `Resource.roc`. `src/roc_platform_abi.rs` is generated, so regenerate it
+  rather than merge it.
+- Left out: SQLite, TCP, Unix sockets and locales (`src/sqlite.rs`,
+  `tcp.rs`, `socket.rs`, `listener.rs`, `unix_socket.rs` and their modules).
+  Names like `BASIC_CLI_LIVE_HANDLES` stay as upstream has them, so its
+  changes apply cleanly.
+
 The Roc compiler is pinned to one commit of [`roc-lang/roc`](https://github.com/roc-lang/roc):
-the `roc-src` input in `flake.nix`, locked in `flake.lock`. The Nix shell and CI
-both build that commit, so the compiler, the committed host ABI glue and the
-examples always agree.
+the `roc-src` input in `flake.nix`, locked in `flake.lock`. The Nix shell builds
+that commit, and CI downloads the build of it that
+[niclas-ahden/roc-builds](https://github.com/niclas-ahden/roc-builds) publishes
+(or builds it when there is none), so the compiler, the committed host ABI glue
+and the examples always agree.
 
 ## Code of Conduct
 
@@ -29,7 +52,7 @@ Without Nix, check out the pinned commit of `roc-lang/roc`, build it with
 
 With Nix's `nix-command` and `flakes` features enabled, the flake provides the
 pinned Roc compiler, the Rust toolchain and cross-compilation standard
-libraries, Zig, Python, Valgrind (Linux only), and the documentation preview
+libraries, Zig, Valgrind (Linux only), and the documentation preview
 server on supported Linux and macOS systems. Enter it with:
 
 ```sh
@@ -66,7 +89,7 @@ committed host ABI glue cannot drift apart. To move the pin:
    `nix flake lock`.
 2. Run `./ci/regenerate_glue.sh` to refresh `src/roc_platform_abi.rs`.
 3. Reconcile `src/lib.rs` if generated names or layouts changed.
-4. Run the Rust checks under [Verification](#verification) and `./scripts/test.py`.
+4. Run the Rust checks under [Verification](#verification) and `roc scripts/test.roc`.
 
 ## Verification
 
@@ -77,22 +100,23 @@ Windows is not a declared target yet. To bring it back, add
 in `platform/main.roc`, and a job to the release workflow that builds the host
 on `windows-2025` and hands `platform/targets/x64win/` to the bundle job.
 
-Build the host on Windows x64 with Python 3.11 or newer, the pinned Rust toolchain,
-Zig 0.17.0 on `PATH` (or selected with `ZIG`), and the Windows SDK/MSVC build tools used by Rust's MSVC
-target. Install Rust's notices and LLVM tools with
+Build the host on Windows x64 with the pinned Roc and Rust toolchains, Zig 0.17.1
+on `PATH` (or selected with `ZIG`), and the Windows SDK/MSVC build tools used by
+Rust's MSVC target. Install Rust's notices and LLVM tools with
 `rustup component add rust-docs llvm-tools-preview`. The Rust target remains
-`x86_64-pc-windows-msvc`; `zig cc` builds ring using that ABI and
-the SDK headers. A small adapter translates the target flags from Cargo's C
-build tooling; a separate LLVM/clang-cl installation is unnecessary. All Windows
-build steps use the same version-checked executable. The adapter is copied to a
-path derived from the compiler's path and SHA-256 and both adapter files' hashes,
-so changing these inputs invalidates Cargo's cached native builds.
+`x86_64-pc-windows-msvc`, and `zig cc` builds ring using that ABI and the SDK
+headers. A small adapter, `ci/zig_msvc_cc.roc`, translates the target flags from
+Cargo's C build tooling, so no separate LLVM/clang-cl installation is needed.
+All Windows build steps use the same version-checked executable. The adapter is
+compiled into `target/windows-compiler/` under a fingerprint of the Zig
+executable, the adapter source and the Roc version, so changing any of them
+invalidates Cargo's cached native builds.
 
-Run `python scripts/build.py --target x64win`, followed by
-`python -m unittest scripts/test_windows_runtime.py`. The build generates the
+Run `roc scripts/build.roc --target x64win`, followed by
+`roc scripts/windows_runtime.roc --test-windows`. The build generates the
 startup archive and UCRT/Win32 import libraries, combines them into
 `windows_support.lib`, then collects the actual Cargo
-and Rust notices. `python scripts/windows_runtime.py --check` verifies the
+and Rust notices. `roc scripts/windows_runtime.roc --check` verifies the
 library and notice inventories before bundling. Release artifacts must transfer
 the entire `platform/targets/x64win/` directory, including `PROVENANCE.json` and
 `licenses/`. Empty target placeholders are permitted only by the explicit local
@@ -112,14 +136,19 @@ changing `Cargo.lock`, `rust-toolchain.toml` or a prebuilt input under
 `platform/targets/`:
 
 ```sh
-python3 scripts/third_party_notices.py
+roc scripts/third_party_notices.roc
 ```
 
 The script runs `cargo metadata` for every Roc target and follows normal
-dependencies, which excludes build and dev dependencies. For each linked package
-it reproduces every license file in the package source, along with the copyright
-comments at the top of its source files. A license expression outside the
-reviewed set in `scripts/windows_runtime.py` stops it, as does a package with no
+dependencies, which excludes build and dev dependencies. A package offered under
+a choice of licenses is used under one of them (MIT where offered, else
+Apache-2.0, else ISC), and the files of the licenses it is not used under are
+left out. A license text that several files hold is written once, without its
+copyright lines, which follow it for every file. A text only one file holds is
+written as it came. The copyright comments at the top of each package's source
+files come after. `roc test scripts/third_party_notices.roc`
+runs its tests. A license expression outside the
+reviewed set in `scripts/Licenses.roc` stops it, as does a package with no
 license file. CI and the release workflow run it with `--check` and fail when
 the committed file is stale.
 
@@ -147,10 +176,11 @@ any Clippy lint it needs relaxed is allowed on its `mod` declaration in
 `src/lib.rs` with a comment saying why, not by hand-editing the generated file
 or crate-wide.
 
-Release-tooling regression tests run with:
+The scripts' own tests run with the loop CI uses. The modules (`Targets.roc`,
+`HostBuild.roc` ...) are tested through the scripts that import them:
 
 ```sh
-python3 -m unittest scripts/test_check_release_version.py scripts/test_check_release_branch.py scripts/test_check_version_bump.py scripts/test_update_nix_release.py scripts/test_check_roc_pin.py scripts/test_windows_runtime.py scripts/test_third_party_notices.py
+for script in scripts/[a-z]*.roc ci/*.roc; do roc test "$script"; done
 ```
 
 Stable releases must be dispatched from the default branch. To publish a branch
@@ -167,13 +197,13 @@ never block a release. The first release has no predecessor and skips it.
 Run the full local check before opening release or CI-facing changes:
 
 ```sh
-./scripts/test.py
+roc scripts/test.roc
 ```
 
 Set `ROC` to test with a specific compiler without changing `PATH`:
 
 ```sh
-ROC=/path/to/roc ./scripts/test.py
+ROC=/path/to/roc roc scripts/test.roc
 ```
 
 The default command builds and bundles the native host, serves the bundle from
@@ -201,16 +231,16 @@ this includes `arm64musl`, which runs on an arm64 Linux runner.
 The operations can also be run independently:
 
 ```sh
-./scripts/test.py --operation validate
-./scripts/test.py --operation build --target x64musl --artifact-dir dist/example-binaries
-./scripts/test.py --operation run --target x64musl --artifact-dir dist/example-binaries
+roc scripts/test.roc --operation validate
+roc scripts/test.roc --operation build --target x64musl --artifact-dir dist/example-binaries
+roc scripts/test.roc --operation run --target x64musl --artifact-dir dist/example-binaries
 ```
 
 On Linux, run those native artifacts under Valgrind with the same cases and
 output assertions used by CI:
 
 ```sh
-./scripts/test.py --operation run --target x64musl --artifact-dir dist/example-binaries --valgrind
+roc scripts/test.roc --operation run --target x64musl --artifact-dir dist/example-binaries --valgrind
 ```
 
 Native resource handles (file readers, sockets, listeners and child processes)
@@ -245,7 +275,7 @@ not prove cleanup. On x86_64 glibc Linux, run the additional ownership check
 used by CI:
 
 ```sh
-ROC=/path/to/pinned/roc python3 scripts/test_resource_lifetimes.py
+ROC=/path/to/pinned/roc roc scripts/test_resource_lifetimes.roc
 ```
 
 It creates an isolated diagnostic platform under `target/`, uses glibc so
@@ -257,7 +287,7 @@ descriptors and reachable service state can remain until process exit.
 For faster local iterations when the platform host is already built:
 
 ```sh
-./scripts/test.py --no-build
+roc scripts/test.roc --no-build
 ```
 
 Build and validation operations bundle the current platform and temporarily

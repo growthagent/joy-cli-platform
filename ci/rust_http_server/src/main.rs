@@ -310,7 +310,7 @@ async fn main() -> Result<(), GenericError> {
     // 127.0.0.1. Bind both loopback families so either answer connects. IPv6 is
     // best effort: hosts without it fall back to the IPv4 listener.
     //
-    // Bind ::1 first. `wait_for_port` in scripts/test.py polls 127.0.0.1 for
+    // Bind ::1 first. `wait_for_port!` in scripts/test.roc polls 127.0.0.1 for
     // readiness, so the IPv4 listener has to be the last one to come up.
     let mut listeners = Vec::new();
     for addr in [
