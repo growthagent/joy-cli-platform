@@ -1,0 +1,18 @@
+The files under platform/targets/macos-sysroot let the Roc linker link the
+macOS host without an Apple SDK. They are text stubs (.tbd): each names a
+system library or framework, its version and the symbols a program may import
+from it. They hold no code. The libraries themselves ship with macOS.
+
+usr/lib/libSystem.tbd,
+System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd and
+System/Library/Frameworks/CoreServices.framework/CoreServices.tbd were written
+for this platform, the way roc-lang/roc writes its own framework stubs in
+src/build/darwin. Each holds the library's install name, its version and the
+names of the symbols this platform's executables import from it, as `nm -m -u`
+lists them for the host and every example and test app on arm64 and x86_64
+macOS, and nothing else. They are under this platform's license (UPL-1.0, see
+LICENSE).
+
+When the host or an app starts to import another symbol from one of them, the
+macOS link fails and names it. Add it to that stub's symbol list, under the
+targets that import it.

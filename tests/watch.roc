@@ -52,6 +52,16 @@ watch! = |root, poll| {
 	Path.delete_all!(Path.join(client, "Checkout"))?
 	report!(watch, root, "a removed folder", 1)?
 
+	# A file moved in is one change, which `collect!` would hide if it came
+	# twice, so the next look must find nothing.
+	Path.write_utf8!(Path.join(root, "moved.roc"), "moved")?
+	Path.rename!(Path.join(root, "moved.roc"), Path.join(client, "moved.roc"))?
+	report!(watch, root, "a file moved in", 1)?
+	again = watch.next!({ timeout: Duration.millis(300) })?
+	if again != [] {
+		return Err(ReportedTwice(again.map(|change| relative(root, change.path))))
+	}
+
 	# A file in shared/ changes before shared/ is watched, and is not reported.
 	Path.write_utf8!(Path.join(shared, "Book.roc"), "book, edited")?
 	watch.set!({ trees: [client], folders: [shared], skip: [".git"], poll })?
@@ -83,8 +93,26 @@ collect! = |watch, seen, count, tries_left|
 		Ok(seen)
 	} else {
 		changes = watch.next!({ timeout: Duration.millis(500) })?
-		collect!(watch, seen.concat(changes), count, tries_left - 1)
+		collect!(watch, changes.fold(seen, add_change), count, tries_left - 1)
 	}
+
+## Add a change by its net effect, as a burst split in two can name a path
+## in both.
+add_change : List(Watch.Change), Watch.Change -> List(Watch.Change)
+add_change = |seen, change| {
+	same = |earlier| Path.display(earlier.path) == Path.display(change.path)
+	others = seen.drop_if(same)
+	match seen.find_first(same) {
+		Err(_) => others.append(change)
+		Ok(earlier) =>
+			match (earlier.kind, change.kind) {
+				(Created, Removed) => others
+				(Created, _) => others.append(earlier)
+				(Removed, Created) => others.append({ ..change, kind: Modified })
+				_ => others.append(change)
+			}
+	}
+}
 
 relative = |root, path|
 	Path.display(path).drop_prefix(Path.display(root)).drop_prefix("/").drop_prefix("\\")
