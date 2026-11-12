@@ -149,6 +149,15 @@ serve! = |site| {
 	expect [missing, dotfile, parent].map(Response.status) == [404, 404, 404]
 	Stdout.line!("missing files, dotfiles and parents are 404")?
 
+	plain = get!("${base}/as-text")?
+	types = Response.headers(plain).keep_if(|h| h.name.caseless_ascii_equals("content-type"))
+	expect types.map(|h| h.value) == ["text/plain"]
+	expect header(plain, "x-joy") == Ok("1")
+	gone = get!("${base}/gone-as-text")?
+	expect Response.status(gone) == 404
+	expect header(gone, "x-joy") == Err(Missing("x-joy"))
+	Stdout.line!("a handler's header replaces the file's, and a 404 keeps none")?
+
 	hello = get!("${base}/api/hello")?
 	expect Str.from_utf8(Response.body(hello)) == Ok("hello from Roc")
 	expect header(hello, "x-joy") == Ok("1")
@@ -219,9 +228,19 @@ route! = |events, request| {
 		}
 		(GET, "/api/fail") => Err(DeliberateFailure)
 		(GET, "/events") => Ok(Server.stream(events, [{ name: "Access-Control-Allow-Origin", value: "*" }]))
+		(GET, "/as-text") => Ok(as_text("css/site.css"))
+		(GET, "/gone-as-text") => Ok(as_text("missing.css"))
 		_ => Ok(Server.file("site", Request.uri(request)))
 	}
 }
+
+as_text = |path|
+	Server.file_with({
+		root: "site",
+		path,
+		cache: Revalidate,
+		headers: [{ name: "Content-Type", value: "text/plain" }, { name: "X-Joy", value: "1" }],
+	})
 
 get! = |url| Http.send!(Request.from_method(GET).with_uri(url), {})
 

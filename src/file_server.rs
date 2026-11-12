@@ -501,10 +501,41 @@ fn validate_decoded_segment(segment: &str) -> Result<String, String> {
         || segment
             .bytes()
             .any(|byte| byte == 0 || byte == b'\\' || byte == b':' || byte == b'/')
+        || (cfg!(windows) && names_something_else_on_windows(segment))
     {
         return Err("unsafe relative file component".to_owned());
     }
     Ok(segment.to_owned())
+}
+
+/// Whether Windows may open something other than the name says: a short
+/// name like `GIT~1` for `.git`, a device like `NUL`, or a name it trims
+/// trailing dots and spaces from.
+fn names_something_else_on_windows(segment: &str) -> bool {
+    const DEVICES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+    let short_name = segment
+        .split('~')
+        .skip(1)
+        .any(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
+    let stem = segment.split('.').next().unwrap_or(segment).trim_end();
+    // Windows also takes the superscript digits one, two and three as port
+    // numbers, so `COM¹` is a device too.
+    let port = |rest: &str| {
+        let mut chars = rest.chars();
+        matches!(
+            (chars.next(), chars.next()),
+            (Some('1'..='9' | '¹' | '²' | '³'), None)
+        )
+    };
+    let device = DEVICES
+        .iter()
+        .any(|device| stem.eq_ignore_ascii_case(device))
+        || (stem.is_char_boundary(3)
+            && ["COM", "LPT"]
+                .iter()
+                .any(|prefix| stem[..3].eq_ignore_ascii_case(prefix))
+            && port(&stem[3..]));
+    short_name || device || segment.ends_with(['.', ' '])
 }
 
 fn open_relative_file(root: &File, segments: &[String]) -> io::Result<File> {
@@ -767,6 +798,43 @@ fn parse_range(headers: &HeaderMap, length: u64) -> RangeSelection {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn windows_aliases_and_devices_are_caught() {
+        for name in [
+            "GIT~1",
+            "env~1",
+            "LONGNA~2.TXT",
+            "nul",
+            "NUL.txt",
+            "con",
+            "Com3",
+            "lpt9.log",
+            "conin$",
+            "COM¹",
+            "com².txt",
+            "LPT³",
+            "file.",
+            "file ",
+        ] {
+            assert!(names_something_else_on_windows(name), "{name}");
+        }
+        for name in [
+            "app.js",
+            "backup~",
+            "a~b",
+            "COM",
+            "COM0",
+            "COM10",
+            "COM¹¹",
+            "LPT⁴",
+            "console.css",
+            "nullable.js",
+            "con-tact.html",
+        ] {
+            assert!(!names_something_else_on_windows(name), "{name}");
+        }
+    }
 
     #[test]
     fn content_types_cover_the_files_apps_serve() {

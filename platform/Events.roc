@@ -8,10 +8,10 @@ import Sse
 ## published, rather than waking on a timer to check.
 ##
 ## Each stream starts with the greeting, the events last given to
-## [set_greeting!], and then gets every event published after it opened.
-## Setting the greeting and opening a stream do not race: a stream that opens
-## while an event is published gets either the old greeting and the event, or
-## the new greeting alone.
+## [set_greeting!], and then gets every event published after it opened. A
+## stream never misses an event between its greeting and the events after
+## it. To change both, set the greeting first and publish after: a stream
+## that opens in between then gets the news twice instead of not at all.
 ##
 ## The buffer is bounded. A stream that falls more than `capacity` events
 ## behind is closed, so the page reconnects and starts again from the greeting.

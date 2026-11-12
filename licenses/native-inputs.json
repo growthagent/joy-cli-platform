@@ -45,6 +45,19 @@
       "origin": "https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/arm64musl-ef2f4332bee02ca5aeaab1eed455a18f738ca6da20fa8d7a649aae24c05818cc.tar.gz",
       "upstream": "https://ziglang.org/download/0.17.0/",
       "version": "Zig 0.17.0 bundled LLVM libunwind"
+    },
+    {
+      "files": {
+        "platform/targets/macos-sysroot/usr/lib/libSystem.tbd": "0ee8bf0cb026c7c4141180d34db617f9605fc0a115d0bba1334698594f506f4d",
+        "platform/targets/macos-sysroot/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd": "0802ddefd520ca1b50b299da85f8e9868030ee8e213312ba0b6e1ffbceb7f492",
+        "platform/targets/macos-sysroot/System/Library/Frameworks/CoreServices.framework/CoreServices.tbd": "fdebf9387f306d7fa6b171c402d63cdc0dd0dc239c6afd8d14c18098f83ecf33"
+      },
+      "license": "UPL-1.0",
+      "license_file": "macos-link-stubs-NOTICE.txt",
+      "name": "macOS link stubs",
+      "origin": "written for this platform, listing only the libSystem, CoreFoundation and CoreServices symbols the macOS host and its apps import",
+      "upstream": "https://github.com/growthagent/joy-cli-platform/blob/main/LICENSE",
+      "version": "2"
     }
   ]
 }

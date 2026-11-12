@@ -136,9 +136,34 @@ fn ready(fd: libc::c_int, events: libc::c_short) -> io::Result<()> {
     }
 }
 
+/// Makes `Input::ready` say yes with nothing to read, as when another reader
+/// takes the input poll saw, so a test can reach the read that then blocks.
+#[cfg(test)]
+pub static PRETEND_READY: AtomicBool = AtomicBool::new(false);
+
 #[derive(Default)]
 pub struct Input;
 impl Input {
+    /// Whether a read returns at once: input or the end is here. A wake that
+    /// interrupts the question asks it again.
+    pub fn ready(&self) -> bool {
+        #[cfg(test)]
+        if PRETEND_READY.load(Ordering::Acquire) {
+            return true;
+        }
+        let mut poll = libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        loop {
+            match unsafe { libc::poll(&mut poll, 1, 0) } {
+                -1 if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => {}
+                result => return result > 0,
+            }
+        }
+    }
+
     pub fn read(&mut self, bytes: &mut [u8], cancelled: &AtomicBool) -> io::Result<usize> {
         if cancelled.load(Ordering::Acquire) {
             return Err(io::ErrorKind::Interrupted.into());
