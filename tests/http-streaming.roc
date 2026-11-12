@@ -1,7 +1,7 @@
 ## Exercise `Http.send_streaming!` against ci/rust_http_server: the head before
 ## the body, chunk sizes, `read_to_end!` and its limit, both timeouts, failures
 ## that end a body, and downloads through `File.Writer.write_stream!`.
-## scripts/test.py checks that no response handle is left open in any mode.
+## scripts/test.roc checks that no response handle is left open in any mode.
 app [main!] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "../platform/main.roc",

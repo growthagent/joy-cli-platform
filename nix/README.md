@@ -70,10 +70,10 @@ Run `nix flake check` to exercise it locally. CI does not run it.
 ## Updating the release
 
 The release workflow updates `release.json` in its release follow-up PR alongside
-the examples. To update it manually, use Python, GNU tar, and zstd:
+the examples. To update it manually, use Roc, curl, GNU tar and zstd:
 
 ```sh
-python3 scripts/update_nix_release.py --version VERSION --url RELEASE_BUNDLE_URL
+roc scripts/update_nix_release.roc --version VERSION --url RELEASE_BUNDLE_URL
 nix flake check
 ```
 
