@@ -44,7 +44,7 @@
       forAllSystems = lib.genAttrs supportedSystems;
       rustToolchainConfig = (builtins.fromTOML (builtins.readFile ./rust-toolchain.toml)).toolchain;
 
-      # scripts/build.py cross-compiles the host with `zig cc` for the musl
+      # scripts/build.roc cross-compiles the host with `zig cc` for the musl
       # targets, so those work from any host. The macOS targets need an Apple
       # SDK for the bundled C dependencies, so only ship their standard
       # libraries where they can actually be built.
@@ -89,7 +89,6 @@
           default = pkgs.mkShell {
             packages = [
               roc-nix.packages.${system}.roc
-              pkgs.python3
               rustToolchain
               pkgs.simple-http-server
               pkgs.zig_0_17

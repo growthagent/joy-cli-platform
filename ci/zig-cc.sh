@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # C-compiler shim so cc-rs (used by the bundled libsqlite3-sys) can cross-compile
 # C to musl using `zig cc`, avoiding the need for a musl-gcc cross toolchain in
-# CI. scripts/build.py points CC_<triple> at this script for *-linux-musl targets and
+# CI. scripts/build.roc points CC_<triple> at this script for *-linux-musl targets and
 # sets ZIG_CC_TARGET to the zig target triple (e.g. x86_64-linux-musl).
 #
 # cc-rs passes the *rust* triple via `--target=...`; zig wants its own triple, so

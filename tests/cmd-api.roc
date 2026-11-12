@@ -1,5 +1,5 @@
 ## Run this executable as its own child process and print what `Cmd` returns,
-## so that scripts/test.py can check each way of running a command, the errors,
+## so that scripts/test.roc can check each way of running a command, the errors,
 ## and the `Child` methods on every operating system without other programs.
 app [main!] { pf: platform "../platform/main.roc" }
 
@@ -92,7 +92,7 @@ helper! = |args| {
 		Err(_) => "cmd-api-could-not-find-itself"
 	}
 	# An empty value turns off the child's own live-handle report, which
-	# scripts/test.py requests from this process, so captured stderr is only
+	# scripts/test.roc requests from this process, so captured stderr is only
 	# what the helper wrote.
 	Cmd.new(executable)
 		.arg("--helper")

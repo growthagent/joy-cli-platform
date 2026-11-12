@@ -1,6 +1,6 @@
 ## Exercise `File.Writer`: the three write modes, buffering and flushing,
 ## `write_stream!`, `File.with_writer!` and the errors each one returns.
-## scripts/test.py runs every mode in a temporary working directory and checks
+## scripts/test.roc runs every mode in a temporary working directory and checks
 ## that no writer handle is left open.
 app [main!] { pf: platform "../platform/main.roc" }
 

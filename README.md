@@ -48,9 +48,11 @@ path, and with `miss: AskHandler` what no file answers goes to the handler.
 ### Events
 
 `Events.publish!` sends a frame to every open stream at once, and returns
-how many it reached. Each new stream starts with the greeting given to
-`Events.set_greeting!`, the `hello` of `./joy dev`, and setting the greeting
-and opening a stream do not race. A stream that falls behind by more than the
+how many streams were open. Each new stream starts with the greeting given to
+`Events.set_greeting!`, the `hello` of `./joy dev`, and gets every event
+published after it, with none lost in between. To change the greeting and
+publish news, set the greeting first: a stream that opens in between gets the
+news twice rather than not at all. A stream that falls behind by more than the
 buffer holds is closed, so the page reconnects and starts from the greeting.
 
 ### Watch
@@ -60,9 +62,14 @@ alone, and folders named in `skip` never entered. What `Watch.next!` reports
 comes from comparing each file's size and time of change with what the watch
 saw before. A burst of events is one list once nothing has changed for
 `quiet`, an event that changed nothing is not reported, and lost events are
-caught by comparing everything. `poll: Every(interval)` compares on a timer
-for filesystems that send no events. `Watch.set!` changes the watched
-folders without losing changes in the ones kept.
+caught by comparing everything. A file is also compared by inode on Unix, and
+while its time of change is too recent to tell edits apart, by its contents.
+A folder that is removed and made again, by a generator or a `git checkout`,
+is watched again, and so is a watched folder that comes back after it was
+removed. Links to folders below a tree are not followed. `poll:
+Every(interval)` compares on a timer for filesystems that send no events.
+`Watch.set!` changes the watched folders without losing changes in the ones
+kept.
 
 ### Signals
 
@@ -74,13 +81,13 @@ is restored.
 
 ## Development
 
-The Nix shell has the pinned Roc, Rust, Zig and Python:
+The Nix shell has the pinned Roc, Rust and Zig:
 
 ```sh
 nix develop
 ./ci/regenerate_glue.sh      # after changing platform/Host.roc or main.roc
-python3 scripts/build.py     # the host for this machine
-python3 scripts/test.py      # Rust tests, roc test, and every app in scripts/test_spec.json
+roc scripts/build.roc        # the host for this machine
+roc scripts/test.roc         # Rust tests, roc test, and every app in scripts/test_spec.json
 ```
 
 `tests/server.roc`, `tests/watch.roc`, `tests/terminal.roc` and

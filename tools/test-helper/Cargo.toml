@@ -1,0 +1,26 @@
+[package]
+name = "test-helper"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+license = "UPL-1.0"
+publish = false
+description = "Runs example apps on a terminal or console for scripts/test.roc, and serves a bundle over HTTP. A test tool, never part of a bundle."
+
+[dependencies]
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.180"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+	"Win32_Foundation",
+	"Win32_Security",
+	"Win32_Storage_FileSystem",
+	"Win32_System_Console",
+	"Win32_System_Threading",
+	"Win32_UI_WindowsAndMessaging",
+] }
+
+# Its own workspace, so the host's crate does not take it in.
+[workspace]
