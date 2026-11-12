@@ -14,11 +14,13 @@ import Resource
 ## `trees` with every folder below them, a new folder included as soon as it
 ## appears. Folders whose name is in `skip` are never entered.
 ##
-## What [next!] reports comes from comparing each file's size and time of
-## change with what the watch saw before, so a burst of events for one save
-## is one change, and an event that changed nothing is none. When the
-## operating system drops events, the watch compares every file it watches,
-## so a lost event never means a missed change.
+## What [next!] reports comes from comparing each file with what the watch
+## saw before: its size, its time of change, its inode on Unix, and its
+## contents while the time of change is too recent to tell edits apart. So a
+## burst of events for one save is one change, and an event that changed
+## nothing is none. When the operating system drops events, the watch
+## compares every file it watches, so a lost event never means a missed
+## change.
 ##
 ## `poll: Every(interval)` compares on a timer instead, for filesystems that
 ## send no events, such as some network mounts and folders shared into a VM.

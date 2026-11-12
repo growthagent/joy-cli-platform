@@ -203,6 +203,12 @@ impl Input {
         Ok(handle)
     }
 
+    /// Whether a read returns at once. Windows is not asked, so only input
+    /// read before counts.
+    pub fn ready(&self) -> bool {
+        false
+    }
+
     pub fn read(&mut self, bytes: &mut [u8], token: &AtomicBool) -> io::Result<usize> {
         cancelled(token)?;
         if !self.pending.is_empty() {

@@ -59,6 +59,13 @@ Server :: { id : U64, port : U16 }.{
 	##
 	## Port 0 asks the system for a free port, which [port] then reports.
 	## `"localhost"` listens on 127.0.0.1.
+	##
+	## A request with a larger body than `max_body_bytes` is answered with a
+	## 413. A client gets 30 seconds to send a request's headers, and 60
+	## seconds between two pieces of its body, so a slow upload that keeps
+	## sending is never cut off, and one that stalls is answered with a 408.
+	## The server keeps at most 512 connections open, and further ones wait
+	## until one closes.
 	Config := {
 		host : Str ?? "localhost",
 		port : U16 ?? 0,
@@ -75,7 +82,9 @@ Server :: { id : U64, port : U16 }.{
 		Stream({ events : Events, headers : List(Header) }),
 	]
 
-	## Answer with a response built in Roc.
+	## Answer with a response built in Roc. The host sets `Content-Length`
+	## from the body and leaves out a handler's `Content-Length` and
+	## `Transfer-Encoding`.
 	respond : Response -> Reply
 	respond = |response| Respond(response)
 
@@ -89,13 +98,21 @@ Server :: { id : U64, port : U16 }.{
 	file = |root, path| File({ root, path, cache: Inherit, headers: [] })
 
 	## Like [file], with a cache policy of its own and extra headers.
+	##
+	## A header replaces the host's header of the same name, such as the
+	## file's `Content-Type`, and more of one name are all sent. The host keeps
+	## its own `Content-Length`, `Transfer-Encoding`, `Content-Range` and `ETag`,
+	## since they say which bytes of which version of the file are sent, and
+	## leaves out a handler's. The headers go only with a file that is sent
+	## or a 304. A 404, a 405 or a range the file lacks is the host's answer
+	## alone, so CORS headers set here are not on it.
 	file_with : { root : Str, path : Str, cache : Cache, headers : List(Header) } -> Reply
 	file_with = |{ root, path, cache, headers }| File({ root, path, cache: Override(cache), headers })
 
 	## Answer with an event stream that sends the greeting of `events` and then
 	## every event published to it. The extra headers are sent along, for CORS
 	## say, with `Content-Type: text/event-stream` and
-	## `Cache-Control: no-cache`.
+	## `Cache-Control: no-cache`, which a header of the same name replaces.
 	stream : Events, List(Header) -> Reply
 	stream = |events, headers| Stream({ events, headers })
 

@@ -14,6 +14,8 @@ mod sys;
 mod sys;
 
 const TICK: Duration = Duration::from_millis(10);
+/// How long a read with a zero timeout may wait in the queue to start.
+const QUEUED_GRACE: Duration = Duration::from_secs(1);
 const CHUNK: usize = 16_384;
 
 #[derive(Clone, Copy, Debug)]
@@ -87,6 +89,8 @@ enum Read {
     Chunk,
     Line,
     ToEnd,
+    /// Input that is here already, read without waiting for more.
+    Waiting,
 }
 
 enum Response {
@@ -172,12 +176,27 @@ impl Request {
     /// Like `wait`, but cancels the request at `deadline`. Returns whether
     /// the deadline cancelled it, so a cancelled read can tell a timeout from
     /// a signal.
-    fn wait_until(&self, deadline: Instant) -> (io::Result<Response>, bool) {
+    ///
+    /// A request still queued at the deadline may wait `grace` more to
+    /// start, so a zero timeout still reads input that is already waiting.
+    /// A read that `blocks` is cancelled at the deadline once it started. One
+    /// that does not, which ends by itself, gets `grace` more too, and is
+    /// cancelled only if it is stuck: input poll saw was taken by another
+    /// reader first. The cancel repeats every tick, as a wake that lands just
+    /// before the read starts is lost.
+    fn wait_until(
+        &self,
+        deadline: Instant,
+        grace: Duration,
+        blocks: bool,
+    ) -> (io::Result<Response>, bool) {
         let mut timed_out = false;
         loop {
+            let now = Instant::now();
+            let queued = matches!(self.state.lock().unwrap().phase, Phase::Queued);
             if crate::signals::is_pending() {
                 self.cancel();
-            } else if !timed_out && Instant::now() >= deadline {
+            } else if now >= deadline && ((blocks && !queued) || now >= deadline + grace) {
                 timed_out = true;
                 self.cancel();
             }
@@ -320,6 +339,9 @@ struct Input {
 
 impl Input {
     fn read(&mut self, kind: Read, cancelled: &AtomicBool) -> io::Result<Option<Vec<u8>>> {
+        if matches!(kind, Read::Waiting) {
+            return self.waiting(cancelled);
+        }
         loop {
             if cancelled.load(Ordering::Acquire) {
                 return Err(interrupted());
@@ -353,6 +375,30 @@ impl Input {
                 Err(error) => return Err(error),
             }
         }
+    }
+
+    /// A chunk of input that is here already, empty when there is none and
+    /// `None` at the end. It reads only after poll says input is here, so it
+    /// does not wait. Another process reading the same terminal or pipe can
+    /// take that input first, though, and the read then blocks until a cancel
+    /// interrupts it. A wake meant for an earlier read can interrupt it too,
+    /// and it then tries again.
+    fn waiting(&mut self, cancelled: &AtomicBool) -> io::Result<Option<Vec<u8>>> {
+        let mut bytes = [0u8; CHUNK];
+        while self.buffer.is_empty() && self.native.ready() {
+            match self.native.read(&mut bytes, cancelled) {
+                Ok(0) => return Ok(None),
+                Ok(count) => self.buffer.extend(&bytes[..count]),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(interrupted());
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let count = self.buffer.len().min(CHUNK);
+        Ok(Some(self.take(count, Read::Chunk)))
     }
 
     fn take(&mut self, count: usize, kind: Read) -> Vec<u8> {
@@ -424,18 +470,43 @@ pub fn read_chunk_within(timeout: Duration) -> io::Result<Option<Vec<u8>>> {
         return Err(interrupted());
     }
     let deadline = Instant::now() + timeout;
-    let request = Request::new(Operation::Read(Read::Chunk));
+    let nothing = Some(Vec::new());
+    if !timeout.is_zero() {
+        return Ok(read_until(Read::Chunk, deadline, Duration::ZERO)?.unwrap_or(nothing));
+    }
+    if cfg!(unix) {
+        // Unix tells whether input is waiting, so the read never waits.
+        return Ok(read_until(Read::Waiting, deadline, QUEUED_GRACE)?.unwrap_or(nothing));
+    }
+    // Windows does not tell whether input is waiting, so a read looks until
+    // the deadline cancels it, and input it left in the buffer is asked for
+    // once more.
+    match read_until(Read::Chunk, deadline, QUEUED_GRACE)? {
+        Some(bytes) => Ok(bytes),
+        None => Ok(read_until(Read::Waiting, deadline, QUEUED_GRACE)?.unwrap_or(nothing)),
+    }
+}
+
+/// A read that the deadline cancels, after `grace` more if it has not
+/// started by then. `None` when the deadline cancelled it.
+fn read_until(
+    kind: Read,
+    deadline: Instant,
+    grace: Duration,
+) -> io::Result<Option<Option<Vec<u8>>>> {
+    let request = Request::new(Operation::Read(kind));
     backend()?
         .input
         .send(request.clone())
         .map_err(|_| io::Error::other("native I/O worker stopped"))?;
-    match request.wait_until(deadline) {
-        (Ok(Response::Bytes(bytes)), _) => Ok(bytes),
+    let blocks = !matches!(kind, Read::Waiting);
+    match request.wait_until(deadline, grace, blocks) {
+        (Ok(Response::Bytes(bytes)), _) => Ok(Some(bytes)),
         (Ok(Response::Written), _) => unreachable!(),
         (Err(error), true)
             if error.kind() == io::ErrorKind::Interrupted && !crate::signals::is_pending() =>
         {
-            Ok(Some(Vec::new()))
+            Ok(None)
         }
         (Err(error), _) => Err(error),
     }
@@ -537,6 +608,38 @@ mod tests {
             assert_eq!(line, b"partial");
             return;
         }
+        if mode == "within" {
+            // The parent wrote "abc" and keeps the pipe open.
+            std::thread::sleep(Duration::from_millis(100));
+            let waiting = read_chunk_within(Duration::ZERO).unwrap().unwrap();
+            assert_eq!(waiting, b"abc");
+            let started = Instant::now();
+            for _ in 0..50 {
+                let polled = Instant::now();
+                let nothing = read_chunk_within(Duration::ZERO).unwrap().unwrap();
+                assert!(nothing.is_empty());
+                assert!(polled.elapsed() < Duration::from_secs(1));
+            }
+            // A poll asks whether input is waiting and never sleeps a tick,
+            // except on Windows, which cannot tell without reading.
+            if cfg!(unix) {
+                assert!(started.elapsed() < Duration::from_millis(250));
+            }
+            eprintln!("native cancellation acknowledged");
+            return;
+        }
+        #[cfg(unix)]
+        if mode == "taken" {
+            // Poll says input is here, but the pipe is empty and stays open, so
+            // the read blocks as it does when another reader took the input.
+            sys::PRETEND_READY.store(true, Ordering::Release);
+            let started = Instant::now();
+            let nothing = read_chunk_within(Duration::ZERO).unwrap().unwrap();
+            assert!(nothing.is_empty());
+            assert!(started.elapsed() < QUEUED_GRACE + Duration::from_secs(1));
+            eprintln!("native cancellation acknowledged");
+            return;
+        }
         let stream = if mode == "stderr" {
             Stream::Stderr
         } else {
@@ -593,6 +696,30 @@ mod tests {
             }
         });
         receiver
+    }
+
+    #[test]
+    fn a_zero_timeout_returns_waiting_input_and_never_hangs() {
+        let mut child = child("within");
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(b"abc").unwrap();
+        let acknowledgement = acknowledgement(child.stderr.take().unwrap());
+        let acknowledged = acknowledgement.recv_timeout(Duration::from_secs(10));
+        drop(stdin);
+        let status = child.wait().unwrap();
+        assert!(acknowledged.is_ok() && status.success(), "{status:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_zero_timeout_read_whose_input_was_taken_still_ends() {
+        let mut child = child("taken");
+        let stdin = child.stdin.take().unwrap();
+        let acknowledgement = acknowledgement(child.stderr.take().unwrap());
+        let acknowledged = acknowledgement.recv_timeout(Duration::from_secs(10));
+        drop(stdin);
+        let status = child.wait().unwrap();
+        assert!(acknowledged.is_ok() && status.success(), "{status:?}");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use std::ffi::CStr;
 use std::ffi::{c_char, c_void, OsStr as StdOsStr, OsString};
 use std::fs;
 use std::io::{self, BufReader};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 use std::sync::Mutex;
 
 mod allocator;
@@ -119,23 +119,22 @@ extern "C" {
 }
 
 static DEBUG_OR_EXPECT_CALLED: AtomicBool = AtomicBool::new(false);
-static mut ROC_HOST: *mut RocHost = core::ptr::null_mut();
+/// Set once and never cleared. Handler threads can outlive `main!` by a moment
+/// at exit, and they allocate through it until the process ends.
+static ROC_HOST: AtomicPtr<RocHost> = AtomicPtr::new(core::ptr::null_mut());
 static PROGRAM_NAME: Mutex<Option<OsString>> = Mutex::new(None);
 
-fn set_roc_host(roc_host: *mut RocHost) {
-    unsafe {
-        ROC_HOST = roc_host;
-    }
+fn set_roc_host(roc_host: &'static RocHost) {
+    ROC_HOST.store(core::ptr::from_ref(roc_host).cast_mut(), Ordering::Release);
 }
 
 fn roc_host_ptr() -> *mut RocHost {
-    unsafe {
-        if ROC_HOST.is_null() {
-            eprintln!("roc host error: RocHost not initialized");
-            std::process::exit(1);
-        }
-        ROC_HOST
+    let roc_host = ROC_HOST.load(Ordering::Acquire);
+    if roc_host.is_null() {
+        eprintln!("roc host error: RocHost not initialized");
+        std::process::exit(1);
     }
+    roc_host
 }
 
 fn set_program_name(value: Option<OsString>) {
@@ -155,10 +154,24 @@ pub(crate) fn roc_host() -> &'static RocHost {
     unsafe { &*roc_host_ptr() }
 }
 
-/// The Roc host, or `None` once `main!` has returned and it is gone.
-pub(crate) fn roc_host_if_live() -> Option<&'static RocHost> {
-    unsafe { (*std::ptr::addr_of!(ROC_HOST)).as_ref() }
+/// The Roc host, or `None` before `rust_main` has set it. Once set it stays
+/// until the process ends.
+pub(crate) fn roc_host_if_set() -> Option<&'static RocHost> {
+    unsafe { ROC_HOST.load(Ordering::Acquire).as_ref() }
 }
+
+// The generated glue checks where the first two fields of a boxed closure's
+// header sit. Roc's code reads the last two as well, and a change of their
+// place must not compile.
+const _: () = assert!(
+    core::mem::offset_of!(RocErasedCallablePayload, on_copy) == 2 * core::mem::size_of::<usize>(),
+    "RocErasedCallablePayload.on_copy offset mismatch"
+);
+const _: () = assert!(
+    core::mem::offset_of!(RocErasedCallablePayload, capture_size)
+        == 3 * core::mem::size_of::<usize>(),
+    "RocErasedCallablePayload.capture_size offset mismatch"
+);
 
 macro_rules! define_common_io_err {
     ($from_io:ident, $other:ident, $ty:ident, $tag:ident, $payload:ident) => {
@@ -2271,13 +2284,13 @@ pub fn rust_main(argc: i32, argv: *const *const c_char) -> i32 {
             ignore_sigpipe as *const () as libc::sighandler_t,
         );
     }
-    let mut roc_host = resources::make_host();
-    set_roc_host(&mut roc_host);
+    let roc_host: &'static RocHost = Box::leak(Box::new(resources::make_host()));
+    set_roc_host(roc_host);
 
     let (program_name, args) = split_program_name(collect_process_args(argc, argv));
     set_program_name(program_name);
 
-    let args_list = build_args_list(&args, &roc_host);
+    let args_list = build_args_list(&args, roc_host);
     // A host panic aborts the process in release builds, skipping the cleanup
     // below, so the hook is the only chance to hand the terminal back.
     let default_panic_hook = std::panic::take_hook();
@@ -2305,7 +2318,6 @@ pub fn rust_main(argc: i32, argv: *const *const c_char) -> i32 {
     }
 
     set_program_name(None);
-    set_roc_host(core::ptr::null_mut());
     exit_code
 }
 
