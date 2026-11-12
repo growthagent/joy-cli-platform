@@ -80,7 +80,7 @@ platform/*.a
 # build script artifacts
 build
 
-# Platform host libraries (we manually add things to track like crt1.o, libc.a, libunwind.a)
+# Platform host libraries (we manually add things to track like rcrt1.o, libc.a, libunwind.a)
 platform/targets/*/libhost.a
 
 # Generated Windows host libraries, provenance, and license notices

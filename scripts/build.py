@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -103,7 +104,7 @@ def musl_build_env(rust_target: str) -> dict[str, str]:
     env["ZIG_CC_TARGET"] = zig_target
     env[f"CC_{key}"] = str(ROOT / "ci" / "zig-cc.sh")
     env[f"AR_{key}"] = str(ROOT / "ci" / "zig-ar.sh")
-    env[f"CFLAGS_{key}"] = "-Wno-error"
+    env[f"CFLAGS_{key}"] = env.get(f"CFLAGS_{key}", "") + " -Wno-error -fPIC"
     print(f"  (using zig cc for {rust_target})")
     return env
 
@@ -136,13 +137,23 @@ def install_rust_target(rust_target: str, *, required: bool = False) -> None:
     run("rustup", "target", "add", rust_target, check=required)
 
 
+# Roc links every executable as PIE (roc-lang/roc#12949), so the host and the
+# C code it builds are position independent on every Unix target.
+def pic_build_env(env: dict[str, str]) -> dict[str, str]:
+    existing = env.get("CARGO_ENCODED_RUSTFLAGS")
+    if existing is None:
+        existing = "\x1f".join(shlex.split(env.get("RUSTFLAGS", "")))
+    env["CARGO_ENCODED_RUSTFLAGS"] = existing + ("\x1f" if existing else "") + "-Crelocation-model=pic"
+    return env
+
+
 def copy_unix_host(target_name: str, rust_target: str, *, native: bool) -> None:
     output_dir = ROOT / "platform" / "targets" / target_name
     output_dir.mkdir(parents=True, exist_ok=True)
     source = ROOT / "target" / rust_target / "release" / "libhost.a"
 
     if native and target_name in {"x64mac", "arm64mac"}:
-        run("cargo", "build", "--locked", "--release", "--lib")
+        run("cargo", "build", "--locked", "--release", "--lib", env=pic_build_env(os.environ.copy()))
         source = ROOT / "target" / "release" / "libhost.a"
     else:
         run(
@@ -153,7 +164,7 @@ def copy_unix_host(target_name: str, rust_target: str, *, native: bool) -> None:
             "--lib",
             "--target",
             rust_target,
-            env=musl_build_env(rust_target),
+            env=pic_build_env(musl_build_env(rust_target)),
         )
 
     destination = output_dir / "libhost.a"
