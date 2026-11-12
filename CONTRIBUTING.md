@@ -123,7 +123,7 @@ reviewed set in `scripts/windows_runtime.py` stops it, as does a package with no
 license file. CI and the release workflow run it with `--check` and fail when
 the committed file is stale.
 
-Prebuilt binaries such as musl's `libc.a` and `crt1.o` and LLVM's `libunwind.a`
+Prebuilt binaries such as musl's `libc.a` and `rcrt1.o` and LLVM's `libunwind.a`
 are recorded in `licenses/native-inputs.json` with their SHA-256, origin and
 license text in `licenses/`. Any file under a macOS or Linux target directory
 other than the generated `libhost.a` must be recorded there. When replacing one,
