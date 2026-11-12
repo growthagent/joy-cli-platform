@@ -75,7 +75,7 @@ Stdin :: [].{
 	lines = ||
 		Stream.custom(
 			Reading,
-			Unknown,
+			Err(Unknown),
 			|state|
 				match state {
 					Finished => Err(NoMore)
@@ -108,7 +108,7 @@ Stdin :: [].{
 	chunks = ||
 		Stream.custom(
 			Reading,
-			Unknown,
+			Err(Unknown),
 			|state|
 				match state {
 					Finished => Err(NoMore)
@@ -155,5 +155,5 @@ widen_stdin_err = |result|
 	}
 
 # Building a stream is pure: it reads nothing and its length is not known.
-expect Stream.size_hint(Stdin.lines()) == Unknown
-expect Stream.size_hint(Stdin.chunks()) == Unknown
+expect Stream.len_if_known(Stdin.lines()) == Err(Unknown)
+expect Stream.len_if_known(Stdin.chunks()) == Err(Unknown)
