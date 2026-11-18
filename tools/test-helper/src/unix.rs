@@ -71,7 +71,12 @@ impl Pty {
             cloexec(slave);
             let pty = Pty { master, slave };
             // A size, so `Tty.size!` has something to report: 24 rows of 80 columns.
-            let size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+            let size = libc::winsize {
+                ws_row: 24,
+                ws_col: 80,
+                ws_xpixel: 0,
+                ws_ypixel: 0,
+            };
             if libc::ioctl(slave, libc::TIOCSWINSZ, &size) != 0 {
                 return Err(os_error("TIOCSWINSZ"));
             }
@@ -111,7 +116,11 @@ impl Pty {
     /// Waits up to `timeout` for output, and reads what there is. `None` at
     /// the end of the output.
     fn read(&self, timeout: Duration) -> Option<Vec<u8>> {
-        let mut poll = libc::pollfd { fd: self.master, events: libc::POLLIN, revents: 0 };
+        let mut poll = libc::pollfd {
+            fd: self.master,
+            events: libc::POLLIN,
+            revents: 0,
+        };
         let ready = unsafe { libc::poll(&mut poll, 1, timeout.as_millis() as libc::c_int) };
         if ready <= 0 {
             return Some(Vec::new());
@@ -175,7 +184,13 @@ pub fn run(request: &Request) -> Outcome {
     result
 }
 
-fn drive(request: &Request, pty: &Pty, initial_mode: &Mode, child: &mut Child, signal: Option<libc::c_int>) -> Outcome {
+fn drive(
+    request: &Request,
+    pty: &Pty,
+    initial_mode: &Mode,
+    child: &mut Child,
+    signal: Option<libc::c_int>,
+) -> Outcome {
     let started = Instant::now();
     let deadline = started + Duration::from_secs_f64(request.timeout);
     let mut output = Vec::new();
@@ -232,7 +247,9 @@ fn drive(request: &Request, pty: &Pty, initial_mode: &Mode, child: &mut Child, s
     }
     let final_mode = pty.mode()?;
     if final_mode != *initial_mode {
-        return Err(format!("Terminal mode was not restored (before: {initial_mode:?}, after: {final_mode:?})"));
+        return Err(format!(
+            "Terminal mode was not restored (before: {initial_mode:?}, after: {final_mode:?})"
+        ));
     }
     let exit_code = match status.signal() {
         Some(signal) => -(signal as i64),
@@ -242,5 +259,8 @@ fn drive(request: &Request, pty: &Pty, initial_mode: &Mode, child: &mut Child, s
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    needle.is_empty() || haystack.windows(needle.len()).any(|window| window == needle)
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
 }
