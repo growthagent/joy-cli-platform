@@ -1,7 +1,7 @@
 #!/usr/bin/env roc
 app [main!] {
-	pf: platform "https://github.com/niclas-ahden/basic-cli/releases/download/0.31.0/Ff3fkK1TjYTVxMj9V21FP24ojTJXYk314Fbo1whBZ6Yf.tar.zst",
-	re: "https://github.com/niclas-ahden/roc-regex/releases/download/0.1.0/e6mx4WbnAZ2jrsG69gA7hwzhfTJzWo3e2AiECufqFF3.tar.zst",
+	pf: platform "https://github.com/niclas-ahden/basic-cli/releases/download/0.32.0/3MnQnCrtfe6XS5qx58MnAGU6iWk8i1N24MYfoejcWeax.tar.zst",
+	re: "https://github.com/niclas-ahden/roc-regex/releases/download/0.1.1/csQ1GrMfexbXbQLwhGfS8VE5bw3aooEFm82Nkd4UCvc.tar.zst",
 	weaver: "https://github.com/lukewilliamboswell/weaver/releases/download/0.10.2/7CdYzjBAJmprmnK45oTpmH6BXt76ZASN2Ck5uZQEoWsK.tar.zst",
 }
 

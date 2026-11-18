@@ -5,14 +5,14 @@ platform "joy-cli"
 	requires {
 		## The application entry point receives command-line arguments only; the
 		## launcher-supplied program name is available from Env.program_name!.
-		main! : List([Utf8(Str), UnixBytes(List(U8)), WindowsU16s(List(U16))]) => Try({}, [Exit(I32), Interrupted, ..])
+		main! : List(OsStr) => Try({}, [Exit(I32), Interrupted, ..])
 	}
 	exposes [Cmd, Crypt, Duration, Env, Events, File, Http, IOErr, Monotonic, OsStr, Path, Random, Server, Signal, Sleep, Sse, Stderr, Stdin, Stdout, System, Tty, Url, Utc, Watch]
 	packages {
 		# HTTP data types (Method, Request, Response) come from the shared
 		# roc-lang/http package so apps and other packages using it see the same
 		# nominal types. The platform supplies only the effectful `Http.send!`.
-		http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
+		http: "https://github.com/roc-lang/http/releases/download/2.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	}
 	provides {
 		"roc_main": main_for_host!,
@@ -162,7 +162,7 @@ import Watch
 
 ## The native host removes the invocation name (argv[0]) before calling this
 ## function. Applications can read that value separately with Env.program_name!.
-main_for_host! : List(OsStr.OsStr) => I32
+main_for_host! : List(OsStr) => I32
 main_for_host! = |args|
 	match main!(args) {
 		Ok({}) => 0
