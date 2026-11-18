@@ -58,7 +58,9 @@ fn main() -> ExitCode {
             Some((dashes, program)) if dashes == "--" && !program.is_empty() => detached(program),
             _ => usage("detached needs -- and a program"),
         },
-        Some((command, rest)) if command == "serve" && rest.len() == 1 => serve(Path::new(&rest[0])),
+        Some((command, rest)) if command == "serve" && rest.len() == 1 => {
+            serve(Path::new(&rest[0]))
+        }
         Some((command, rest)) if command == "emit" => emit(rest),
         _ => usage("unknown command"),
     }
@@ -145,9 +147,15 @@ fn from_hex(text: &str) -> Result<Vec<u8>, String> {
 pub fn outcome_json(outcome: &Outcome) -> String {
     match outcome {
         Ok((exit_code, output)) => {
-            format!("{{\"exit_code\":{exit_code},\"output\":{},\"error\":null}}", json_string(output))
+            format!(
+                "{{\"exit_code\":{exit_code},\"output\":{},\"error\":null}}",
+                json_string(output)
+            )
         }
-        Err(error) => format!("{{\"exit_code\":null,\"output\":null,\"error\":{}}}", json_string(error)),
+        Err(error) => format!(
+            "{{\"exit_code\":null,\"output\":null,\"error\":{}}}",
+            json_string(error)
+        ),
     }
 }
 
@@ -186,7 +194,9 @@ fn detached(program: &[String]) -> ExitCode {
         eprintln!("test-helper: setsid: {}", std::io::Error::last_os_error());
         return ExitCode::from(127);
     }
-    let error = std::process::Command::new(&program[0]).args(&program[1..]).exec();
+    let error = std::process::Command::new(&program[0])
+        .args(&program[1..])
+        .exec();
     eprintln!("test-helper: could not start {}: {error}", program[0]);
     ExitCode::from(127)
 }
@@ -243,7 +253,10 @@ fn serve(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let port = listener.local_addr().map(|address| address.port()).unwrap_or(0);
+    let port = listener
+        .local_addr()
+        .map(|address| address.port())
+        .unwrap_or(0);
     println!("http://127.0.0.1:{port}");
     let _ = std::io::stdout().flush();
     for stream in listener.incoming().flatten() {
@@ -270,7 +283,11 @@ fn answer(mut stream: TcpStream, dir: &Path) -> std::io::Result<()> {
     let mut words = request_line.split_whitespace();
     let method = words.next().unwrap_or("");
     let target = words.next().unwrap_or("");
-    let name = target.split(['?', '#']).next().unwrap_or("").trim_start_matches('/');
+    let name = target
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('/');
     if method != "GET" && method != "HEAD" {
         return respond(&mut stream, "405 Method Not Allowed", None, method);
     }
@@ -288,7 +305,12 @@ fn file_in(dir: &Path, name: &str) -> Option<PathBuf> {
     (plain && path.is_file()).then_some(path)
 }
 
-fn respond(stream: &mut TcpStream, status: &str, body: Option<Vec<u8>>, method: &str) -> std::io::Result<()> {
+fn respond(
+    stream: &mut TcpStream,
+    status: &str,
+    body: Option<Vec<u8>>,
+    method: &str,
+) -> std::io::Result<()> {
     let body = body.unwrap_or_else(|| status.as_bytes().to_vec());
     write!(
         stream,
@@ -319,7 +341,16 @@ mod tests {
     #[test]
     fn parses_a_request() {
         let request = parse_request(&strings(&[
-            "--timeout", "20", "--stdin-hex", "710a", "--await-raw-mode", "--send-signal", "SIGTERM", "--", "app", "--flag",
+            "--timeout",
+            "20",
+            "--stdin-hex",
+            "710a",
+            "--await-raw-mode",
+            "--send-signal",
+            "SIGTERM",
+            "--",
+            "app",
+            "--flag",
         ]))
         .unwrap();
         assert_eq!(request.timeout, 20.0);
@@ -342,7 +373,10 @@ mod tests {
             outcome_json(&Ok((-15, "a\"b\\\n\u{1}".into()))),
             "{\"exit_code\":-15,\"output\":\"a\\\"b\\\\\\n\\u0001\",\"error\":null}"
         );
-        assert_eq!(outcome_json(&Err("no".into())), "{\"exit_code\":null,\"output\":null,\"error\":\"no\"}");
+        assert_eq!(
+            outcome_json(&Err("no".into())),
+            "{\"exit_code\":null,\"output\":null,\"error\":\"no\"}"
+        );
     }
 
     #[test]
