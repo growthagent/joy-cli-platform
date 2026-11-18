@@ -12,9 +12,11 @@
     nixpkgs-x86-darwin.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     # The Roc compiler revision, keep the `?dir=src` at the end
     roc-src.url = "github:roc-lang/roc/165a1baad4971048167702feedbca344ca93ecfc?dir=src";
+    # roc-nix keeps its own nixpkgs, so the compiler is the one its cache holds
+    # for this Roc commit. Everything else in the shell comes from the nixpkgs
+    # above.
     roc-nix = {
       url = "github:niclas-ahden/roc-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
       inputs.roc-src.follows = "roc-src";
     };
     rust-overlay = {
