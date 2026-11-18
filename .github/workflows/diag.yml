@@ -19,8 +19,8 @@ jobs:
         include:
           - { os: macos-15-intel, roc: main-90f1d6d }
           - { os: macos-15-intel, roc: nightly-a520eed }
+          - { os: macos-15-intel, roc: pinned-165a1ba }
           - { os: macos-15, roc: main-90f1d6d }
-          - { os: macos-15, roc: nightly-a520eed-x86_64-rosetta }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Roc's main
@@ -28,42 +28,33 @@ jobs:
         uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
         with:
           commit: 90f1d6d6aedc64e08a9741220a1fb8c6e0d902b4
+      - name: The pinned compiler
+        if: matrix.roc == 'pinned-165a1ba'
+        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        with:
+          commit: 165a1baad4971048167702feedbca344ca93ecfc
       - name: The nightly
         if: matrix.roc == 'nightly-a520eed'
         run: |
           curl -fsSL -o roc.tar.gz https://github.com/roc-lang/nightlies/releases/download/nightly-2026-11-18-a520eed/roc_nightly-macos_x86_64-2026-11-18-a520eed.tar.gz
           mkdir nightly && tar -xzf roc.tar.gz -C nightly --strip-components=1
           echo "$PWD/nightly" >> "$GITHUB_PATH"
-      - name: The Intel nightly, for Rosetta
-        if: matrix.roc == 'nightly-a520eed-x86_64-rosetta'
-        run: |
-          /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
-          curl -fsSL -o roc.tar.gz https://github.com/roc-lang/nightlies/releases/download/nightly-2026-11-18-a520eed/roc_nightly-macos_x86_64-2026-11-18-a520eed.tar.gz
-          mkdir nightly && tar -xzf roc.tar.gz -C nightly --strip-components=1
-          mkdir shim
-          printf '#!/bin/bash\nexec arch -x86_64 %s "$@"\n' "$PWD/nightly/roc" > shim/roc
-          chmod +x shim/roc
-          echo "$PWD/shim" >> "$GITHUB_PATH"
       - name: The machine
         run: |
           uname -m
           sw_vers
           sysctl -n machdep.cpu.brand_string || true
           roc version
-          file "$(command -v roc)" || true
-          arch -x86_64 sysctl -n machdep.cpu.brand_string machdep.cpu.features machdep.cpu.leaf7_features 2>/dev/null || sysctl -n machdep.cpu.features machdep.cpu.leaf7_features || true
       - name: The minimal file in every mode
         if: always()
         working-directory: split
+        env:
+          INPUT: |-
+            key: a value that is long enough to show it
+            key: a value of thirty-three bytes
+            key: a value of thirty-two bytes
+            key: short
         run: ./modes.sh repro.roc
-      - name: The tests
-        if: always()
-        working-directory: split
-        run: |
-          echo "--- roc test"; roc test SplitTest.roc || true
-          echo "--- roc test --opt=dev"; roc test --opt=dev SplitTest.roc || true
-          echo "--- roc test --opt=interpreter"; roc test --opt=interpreter SplitTest.roc || true
-          echo "--- roc test --opt=speed"; roc test --opt=speed SplitTest.roc || true
       - name: The probe, run
         if: always()
         working-directory: split
@@ -72,7 +63,3 @@ jobs:
         if: always()
         working-directory: split
         run: roc build --output=probe-built probe.roc && ./probe-built
-      - name: The probe, built with --opt=dev
-        if: always()
-        working-directory: split
-        run: roc build --opt=dev --output=probe-dev probe.roc && ./probe-dev
