@@ -1,0 +1,49 @@
+name: Diagnose
+
+# A temporary look at whether a newer Roc still splits strings wrongly when a
+# program runs as a script on macOS Intel.
+on:
+  push:
+    branches: ['diag/**']
+
+permissions:
+  contents: read
+
+jobs:
+  look:
+    name: Look (${{ matrix.roc }})
+    runs-on: macos-15-intel
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        roc: [pinned-165a1ba, nightly-a520eed, main-90f1d6d]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The pinned compiler
+        if: matrix.roc == 'pinned-165a1ba'
+        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+      - name: The newest nightly
+        if: matrix.roc == 'nightly-a520eed'
+        run: |
+          curl -fsSL -o roc.tar.gz https://github.com/roc-lang/nightlies/releases/download/nightly-2026-11-18-a520eed/roc_nightly-macos_x86_64-2026-11-18-a520eed.tar.gz
+          mkdir nightly && tar -xzf roc.tar.gz -C nightly --strip-components=1
+          echo "$PWD/nightly" >> "$GITHUB_PATH"
+      - name: Roc's main, built here
+        if: matrix.roc == 'main-90f1d6d'
+        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        with:
+          commit: 90f1d6d6aedc64e08a9741220a1fb8c6e0d902b4
+      - name: The machine
+        run: |
+          sysctl -n machdep.cpu.brand_string
+          roc version
+      - name: The checks as tests
+        if: always()
+        run: roc test Repro.roc
+      - name: The checks in a program run as a script
+        if: always()
+        run: roc scripts/diag.roc
+      - name: The same program, built first
+        if: always()
+        run: roc build --output=diag scripts/diag.roc && ./diag
