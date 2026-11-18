@@ -16,15 +16,19 @@ use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use windows_sys::core::BOOL;
-use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT};
-use windows_sys::Win32::Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE, WAIT_TIMEOUT,
+};
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
 use windows_sys::Win32::System::Console::{
-    GenerateConsoleCtrlEvent, GetConsoleMode, SetConsoleCtrlHandler, WriteConsoleInputW, CTRL_BREAK_EVENT, CTRL_C_EVENT,
-    INPUT_RECORD, KEY_EVENT,
+    GenerateConsoleCtrlEvent, GetConsoleMode, SetConsoleCtrlHandler, WriteConsoleInputW,
+    CTRL_BREAK_EVENT, CTRL_C_EVENT, INPUT_RECORD, KEY_EVENT,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateProcessW, GetExitCodeProcess, TerminateProcess, WaitForSingleObject, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
-    PROCESS_INFORMATION, STARTF_USESHOWWINDOW, STARTUPINFOW,
+    CreateProcessW, GetExitCodeProcess, TerminateProcess, WaitForSingleObject, CREATE_NEW_CONSOLE,
+    CREATE_NEW_PROCESS_GROUP, PROCESS_INFORMATION, STARTF_USESHOWWINDOW, STARTUPINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
@@ -52,16 +56,29 @@ impl Drop for Exchange {
 
 /// Runs the request in a new, hidden console and returns the JSON it wrote.
 pub fn run(request: &Request) -> Result<String, String> {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let exchange = Exchange(std::env::temp_dir().join(format!("test-helper-{}-{nanos}", std::process::id())));
-    std::fs::create_dir(&exchange.0).map_err(|error| format!("could not create {}: {error}", exchange.0.display()))?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let exchange =
+        Exchange(std::env::temp_dir().join(format!("test-helper-{}-{nanos}", std::process::id())));
+    std::fs::create_dir(&exchange.0)
+        .map_err(|error| format!("could not create {}: {error}", exchange.0.display()))?;
     let request_file = exchange.0.join("request");
     let result_file = exchange.0.join("result.json");
-    std::fs::write(&request_file, encode_request(request)).map_err(|error| format!("could not write the request: {error}"))?;
-    let exe = std::env::current_exe().map_err(|error| format!("could not find this helper: {error}"))?;
+    std::fs::write(&request_file, encode_request(request))
+        .map_err(|error| format!("could not write the request: {error}"))?;
+    let exe =
+        std::env::current_exe().map_err(|error| format!("could not find this helper: {error}"))?;
     // The paths hold no quotes, and none of them ends in a backslash.
     let mut command_line = wide(
-        format!("\"{}\" console-inner \"{}\" \"{}\"", exe.display(), request_file.display(), result_file.display()).as_ref(),
+        format!(
+            "\"{}\" console-inner \"{}\" \"{}\"",
+            exe.display(),
+            request_file.display(),
+            result_file.display()
+        )
+        .as_ref(),
     );
     let exe_wide = wide(exe.as_os_str());
     let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
@@ -98,10 +115,14 @@ pub fn run(request: &Request) -> Result<String, String> {
         CloseHandle(process.hProcess);
     }
     if waited == WAIT_TIMEOUT {
-        return Err(format!("Console runner timed out after {}s", request.timeout + 10.0));
+        return Err(format!(
+            "Console runner timed out after {}s",
+            request.timeout + 10.0
+        ));
     }
-    let text = std::fs::read_to_string(&result_file)
-        .map_err(|error| format!("Console runner failed with exit code {code} and no result: {error}"))?;
+    let text = std::fs::read_to_string(&result_file).map_err(|error| {
+        format!("Console runner failed with exit code {code} and no result: {error}")
+    })?;
     Ok(text)
 }
 
@@ -114,7 +135,11 @@ fn encode_request(request: &Request) -> Vec<u8> {
         "--input-delay".to_string(),
         request.input_delay.to_string(),
         "--stdin-hex".to_string(),
-        request.stdin.iter().map(|byte| format!("{byte:02x}")).collect(),
+        request
+            .stdin
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
     ];
     if request.await_raw_mode {
         words.push("--await-raw-mode".into());
@@ -127,7 +152,10 @@ fn encode_request(request: &Request) -> Vec<u8> {
     }
     words.push("--".into());
     words.extend(request.args.iter().cloned());
-    words.iter().flat_map(|word| word.bytes().chain(std::iter::once(0))).collect()
+    words
+        .iter()
+        .flat_map(|word| word.bytes().chain(std::iter::once(0)))
+        .collect()
 }
 
 fn decode_request(bytes: &[u8]) -> Result<Request, String> {
@@ -223,9 +251,14 @@ fn run_here(request: &Request) -> Outcome {
         return Err(os_error("SetConsoleCtrlHandler"));
     }
     let initial_mode = console.mode()?;
-    let input = std::fs::OpenOptions::new().read(true).open("CONIN$").map_err(|error| format!("CONIN$: {error}"))?;
+    let input = std::fs::OpenOptions::new()
+        .read(true)
+        .open("CONIN$")
+        .map_err(|error| format!("CONIN$: {error}"))?;
     let (mut reader, writer) = std::io::pipe().map_err(|error| format!("pipe: {error}"))?;
-    let writer_copy = writer.try_clone().map_err(|error| format!("pipe: {error}"))?;
+    let writer_copy = writer
+        .try_clone()
+        .map_err(|error| format!("pipe: {error}"))?;
     let mut command = Command::new(&request.args[0]);
     command
         .args(&request.args[1..])
@@ -234,7 +267,9 @@ fn run_here(request: &Request) -> Outcome {
         .stderr(writer_copy)
         // Its own group, so a console event can be sent to it alone.
         .creation_flags(CREATE_NEW_PROCESS_GROUP);
-    let mut child = command.spawn().map_err(|error| format!("could not start {}: {error}", request.args[0]))?;
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("could not start {}: {error}", request.args[0]))?;
     // The pipe ends once the program and its children have closed it.
     drop(command);
     let output = Arc::new(Mutex::new(Vec::new()));
@@ -246,10 +281,20 @@ fn run_here(request: &Request) -> Outcome {
             if count == 0 {
                 break;
             }
-            collected.lock().unwrap().extend_from_slice(&buffer[..count]);
+            collected
+                .lock()
+                .unwrap()
+                .extend_from_slice(&buffer[..count]);
         }
     });
-    let result = drive(request, &console, initial_mode, &mut child, deadline, &output);
+    let result = drive(
+        request,
+        &console,
+        initial_mode,
+        &mut child,
+        deadline,
+        &output,
+    );
     if !has_exited(&mut child) {
         let _ = child.kill();
         let _ = child.wait();
@@ -280,7 +325,8 @@ fn drive(
         }
     } else if let Some(expected) = &request.await_output {
         loop {
-            let printed = String::from_utf8_lossy(&output.lock().unwrap()).contains(expected.as_str());
+            let printed =
+                String::from_utf8_lossy(&output.lock().unwrap()).contains(expected.as_str());
             if printed {
                 break;
             }
