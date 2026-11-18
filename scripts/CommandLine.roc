@@ -1,3 +1,4 @@
+import pf.OsStr
 import pf.Stderr
 import pf.Stdout
 import weaver.Base
@@ -11,9 +12,9 @@ import weaver.Opt
 ## error and the usage and ends it with 2.
 CommandLine := [].{
 
-	read! : Cli.CliParser(data), List([Utf8(Str), UnixBytes(List(U8)), WindowsU16s(List(U16))]) => Try(data, [Exit(I32)])
+	read! : Cli.CliParser(data), List(OsStr) => Try(data, [Exit(I32)])
 	read! = |parser, raw_args|
-		match Cli.parse_or_display_message(parser, raw_args, |arg| arg) {
+		match Cli.parse_or_display_message(parser, raw_args, OsStr.to_raw) {
 			Ok(data) => Ok(data)
 			Err(Help(message)) | Err(Version(message)) => {
 				Stdout.line!(message) ?? {}

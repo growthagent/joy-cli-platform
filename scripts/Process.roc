@@ -13,14 +13,14 @@ Process := [].{
 	## Runs a command on this terminal. A failure carries the command and its
 	## exit code, 128 plus the signal for one a signal stopped.
 	run! : List(Str), List((Str, Str)) => Try({}, [Failed(Str), CommandFailed(Str, I32)])
-	run! = |command, env| Process.run_with_stdin!(command, env, Inherit)
+	run! = |words, env| Process.run_with_stdin!(words, env, Inherit)
 
 	## Runs a command on this terminal, with its standard input inherited or
 	## given.
 	run_with_stdin! : List(Str), List((Str, Str)), [Inherit, Bytes(List(U8))] => Try({}, [Failed(Str), CommandFailed(Str, I32)])
-	run_with_stdin! = |command, env, stdin| {
-		shown = Str.join_with(command, " ")
-		base = Process.command(command)?
+	run_with_stdin! = |words, env, stdin| {
+		shown = Str.join_with(words, " ")
+		base = Process.command(words)?
 			.envs(env.map(|(key, value)| (OsStr.from_str(key), OsStr.from_str(value))))
 			.inherit_stdio()
 		cmd =
@@ -45,8 +45,8 @@ Process := [].{
 				Stderr.line!("error: ${message}") ?? {}
 				Err(Exit(1))
 			}
-			Err(CommandFailed(command, code)) => {
-				Stderr.line!("error: ${command} failed with exit code ${code.to_str()}") ?? {}
+			Err(CommandFailed(shown, code)) => {
+				Stderr.line!("error: ${shown} failed with exit code ${code.to_str()}") ?? {}
 				Err(Exit(code))
 			}
 			Err(Interrupted) => Err(Interrupted)
@@ -55,10 +55,10 @@ Process := [].{
 	## Prints a command, then runs it in a folder on this terminal. A failure
 	## carries the command and its exit code, and Ctrl+C stops it.
 	call! : List(Str), Str => Try({}, [Failed(Str), CommandFailed(Str, I32), Interrupted])
-	call! = |command, cwd| {
-		shown = Str.join_with(command, " ")
+	call! = |words, cwd| {
+		shown = Str.join_with(words, " ")
 		Stdout.line!("+ ${shown}") ?? {}
-		match Process.command(command)?.cwd(Path.utf8(cwd)).call!() {
+		match Process.command(words)?.cwd(Path.utf8(cwd)).call!() {
 			Ok({}) => Ok({})
 			Err(BadExitStatus(output)) => Err(CommandFailed(shown, Process.exit_code(output.status)))
 			Err(CmdErr(err)) => Err(Failed("${shown}: ${err.to_str()}"))
@@ -69,15 +69,15 @@ Process := [].{
 	## Runs a command and returns what it printed, trimmed. What it prints on
 	## standard error reaches this terminal.
 	capture! : List(Str) => Try(Str, [Failed(Str)])
-	capture! = |command| Process.capture_with_env!(command, [])
+	capture! = |words| Process.capture_with_env!(words, [])
 
 	## `capture!` with more environment variables.
 	capture_with_env! : List(Str), List((Str, Str)) => Try(Str, [Failed(Str)])
-	capture_with_env! = |command, env| {
-		output = Process.command(command)?
+	capture_with_env! = |words, env| {
+		output = Process.command(words)?
 			.envs(env.map(|(key, value)| (OsStr.from_str(key), OsStr.from_str(value))))
 			.output_limit(MaxBytes(268_435_456))
-			.capture!() ? |err| Failed("${Str.join_with(command, " ")} failed: ${Str.inspect(err)}")
+			.capture!() ? |err| Failed("${Str.join_with(words, " ")} failed: ${Str.inspect(err)}")
 		Ok(output.trim())
 	}
 
