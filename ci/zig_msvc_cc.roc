@@ -1,6 +1,6 @@
 #!/usr/bin/env roc
 app [main!] {
-	pf: platform "https://github.com/niclas-ahden/basic-cli/releases/download/0.31.0/Ff3fkK1TjYTVxMj9V21FP24ojTJXYk314Fbo1whBZ6Yf.tar.zst",
+	pf: platform "https://github.com/niclas-ahden/basic-cli/releases/download/0.32.0/3MnQnCrtfe6XS5qx58MnAGU6iWk8i1N24MYfoejcWeax.tar.zst",
 }
 
 # Copyright 2026 basic-cli contributors. SPDX-License-Identifier: UPL-1.0
@@ -23,8 +23,7 @@ import pf.Stderr
 ## CC_x86_64_pc_windows_msvc at it. `roc test ci/zig_msvc_cc.roc` runs the
 ## tests.
 main! : _ => Try({}, _)
-main! = |raw_args| {
-	args = raw_args.map(OsStr.from_raw)
+main! = |args| {
 	zig = Env.var!(OsStr.from_str("ZIG")) ?? OsStr.from_str("zig")
 	match Cmd.new(zig).args(compiler_args(args, OsStr.display, OsStr.from_str)).inherit_stdio().run!() {
 		Ok(output) =>

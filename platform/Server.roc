@@ -130,7 +130,7 @@ Server :: { id : U64, port : U16 }.{
 			}
 		}
 		match Host.server_start!(to_host_config(config), InternalServer.handler(respond!)) {
-			Ok({ id, port }) => Ok({ id, port })
+			Ok({ id, port: bound_port }) => Ok({ id, port: bound_port })
 			Err(ServerErr(err)) => Err(ServerErr(err))
 			Err(BadRoot(name, err)) => Err(BadRoot(name, err))
 			Err(BadConfig(problem)) => Err(BadConfig(problem))
