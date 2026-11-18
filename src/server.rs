@@ -291,6 +291,41 @@ fn request_to_roc(method: &Method, uri: &str, headers: &HeaderMap, body: &[u8]) 
 
 type Job = Box<dyn FnOnce() + Send>;
 
+thread_local! {
+    /// Closes when the request this handler thread is answering has been
+    /// given up: its connection is gone, so nobody waits for the answer.
+    static ANSWERING: std::cell::RefCell<Option<watch::Receiver<()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Names the request a handler thread is answering for as long as it lives.
+struct Answering;
+
+impl Answering {
+    fn enter(waited_for: watch::Receiver<()>) -> Self {
+        ANSWERING.with(|current| *current.borrow_mut() = Some(waited_for));
+        Self
+    }
+}
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        ANSWERING.with(|current| *current.borrow_mut() = None);
+    }
+}
+
+/// Resolves once the request the calling handler thread is answering has been
+/// given up, and never on any other thread. A handler's wait on a backend ends
+/// there, as a proxy's must: a browser that left a slow page would otherwise
+/// hold the handler until the backend answered.
+pub(crate) async fn abandoned() {
+    let waited_for = ANSWERING.with(|current| current.borrow().clone());
+    match waited_for {
+        Some(mut waited_for) => while waited_for.changed().await.is_ok() {},
+        None => std::future::pending::<()>().await,
+    }
+}
+
 /// A fixed set of handler threads behind a bounded queue. A full queue turns
 /// the request away with a 503 rather than letting work pile up.
 struct Pool {
@@ -615,6 +650,8 @@ async fn handle(
         .to_owned();
 
     let (reply_sender, reply_receiver) = oneshot::channel();
+    // Dropped with this future, which hyper drops when the connection goes.
+    let (_waiting, waited_for) = watch::channel(());
     let handler = Arc::clone(&shared.handler);
     let (method, headers) = (parts.method.clone(), parts.headers.clone());
     let job: Job = Box::new(move || {
@@ -622,6 +659,7 @@ async fn handle(
         if reply_sender.is_closed() {
             return;
         }
+        let _answering = Answering::enter(waited_for);
         let reply = handler.call(request_to_roc(&method, &uri, &headers, &body));
         let _ = reply_sender.send(reply);
     });

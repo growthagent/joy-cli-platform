@@ -24,7 +24,50 @@ main! : List(OsStr) => Try({}, _)
 main! = |_args| {
 	Env.with_temp_dir!(|site| serve!(site))?
 	Env.with_temp_dir!(|site| file_routes!(site))?
+	given_up!({})?
 	Stdout.line!("Server checks passed")
+}
+
+## A proxy with one handler in front of a backend that takes three seconds. A
+## caller that gives up after a quarter of one frees the handler, so the next
+## request does not wait for the backend's answer to the first.
+given_up! = |{}| {
+	backend = Server.start!(
+		{},
+		|request| {
+			if Request.uri(request) == "/slow" {
+				_ = Sleep.millis!(3_000)
+			}
+			Ok(Server.respond(Response.from_status(200).with_body(Str.to_utf8("backend ${Request.uri(request)}"))))
+		},
+	)?
+	behind = "http://localhost:${U16.to_str(backend.port())}"
+	proxy = Server.start!(
+		{ handlers: 1 },
+		|request|
+			match Http.send!(request.with_uri("${behind}${Request.uri(request)}"), {}) {
+				Ok(response) => Ok(Server.respond(response))
+				Err(err) => Ok(Server.respond(Response.from_status(502).with_body(Str.to_utf8(Str.inspect(err)))))
+			},
+	)?
+	front = "http://localhost:${U16.to_str(proxy.port())}"
+	match Http.send!(Request.from_method(GET).with_uri("${front}/slow").with_timeout(TimeoutMilliseconds(250)), {}) {
+		Err(HttpErr(Timeout)) => {}
+		other => {
+			return Err(ExpectedATimeout(Str.inspect(other)))
+		}
+	}
+	started = Monotonic.now!()
+	quick = get!("${front}/quick")?
+	waited = Monotonic.since(Monotonic.now!(), started).to_millis()
+	expect Response.body(quick) == Str.to_utf8("backend /quick")
+	if waited > 1_500 {
+		return Err(TheHandlerWaitedForAGoneCaller(waited))
+	}
+	Stdout.line!("a handler stops waiting on a backend once its caller is gone")?
+	Server.stop!(proxy)
+	Server.stop!(backend)
+	Ok({})
 }
 
 ## One handler, which `/slow` keeps busy, so a file that arrives quickly did not

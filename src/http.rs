@@ -344,6 +344,9 @@ async fn await_io<T>(
                 None => std::future::pending::<()>().await,
             }
         } => Err(Failure::Timeout),
+        _ = crate::server::abandoned() => Err(Failure::Other(
+            "the request this handler was answering has been given up".to_owned(),
+        )),
         result = operation => Ok(result),
     }
 }
