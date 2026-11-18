@@ -1520,6 +1520,7 @@
             "a route that asks the handler passes on what no file answers\n",
             "a download route names the file\n",
             "a file route must name a root and start with /\n",
+            "a handler stops waiting on a backend once its caller is gone\n",
             "Server checks passed\n"
           ],
           "stderr_contains": [
