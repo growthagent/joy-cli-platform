@@ -96,6 +96,9 @@ Ctx : {
 	system : Str,
 	roc : Str,
 
+	## Whether roc runs here without its compiler cache.
+	no_cache : Bool,
+
 	## tools/test-helper's binary.
 	helper : Str,
 }
@@ -206,8 +209,15 @@ context! : () => Try(Ctx, Problem)
 context! = || {
 	cwd = Files.cwd!()?
 	windows = Process.is_windows!()
+	target = System.target!()
+	# WORKAROUND: roc-lang/roc#13238. On macOS x64 a cached --opt=dev build splits strings on a one-byte delimiter one byte late. Drop intel_mac when fixed.
+	intel_mac =
+		match (target.os(), target.arch()) {
+			(MacOS(_), X64) => True
+			_ => False
+		}
 	system =
-		match System.target!().os() {
+		match target.os() {
 			Windows(_) => "windows"
 			MacOS(_) => "darwin"
 			Linux(_) => "linux"
@@ -216,7 +226,7 @@ context! = || {
 	roc = env_text!("ROC") ?? "roc"
 	exe = if (windows) ".exe" else ""
 	helper = native_join(windows, root, "tools/test-helper/target/release/test-helper${exe}")
-	Ok({ root, windows, system, roc, helper })
+	Ok({ root, windows, system, roc, no_cache: windows or intel_mac, helper })
 }
 
 env_text! : Str => Try(Str, [Unset])
@@ -289,14 +299,17 @@ status_number = |status|
 
 ## How to run a sibling script, with the same roc.
 script : Ctx, Str -> List(Str)
-script = |ctx, name| [ctx.roc, join(ctx, "scripts/${name}.roc")]
+script = |ctx, name| [ctx.roc].concat(no_cache_args(ctx)).append(join(ctx, "scripts/${name}.roc"))
 
 ## Windows checks, tests and builds go without the compiler cache. basic-cli
 ## has done so since its first Windows CI (its commit 5c21791), with no reason
 ## recorded, and scripts/HostBuild.roc builds the compiler adapter the same
-## way.
+## way. macOS x64 goes without it for roc-lang/roc#13238.
+no_cache_args : Ctx -> List(Str)
+no_cache_args = |ctx| if (ctx.no_cache) ["--no-cache"] else []
+
 roc_extra_args : Ctx -> List(Str)
-roc_extra_args = |ctx| if (ctx.windows) ["--max-transitive-mb=256", "--no-cache"] else ["--max-transitive-mb=256"]
+roc_extra_args = |ctx| ["--max-transitive-mb=256"].concat(no_cache_args(ctx))
 
 ## Builds tools/test-helper, which runs apps on a terminal and serves bundles.
 build_helper! : Ctx => Try({}, Problem)
@@ -1590,13 +1603,13 @@ expect check_fields("c", [("regex", Array([Text("lines\\_read \\& \\~")]))], cas
 # The readers take the spec's values as the schema allows them.
 expect {
 	case = [("name", Text("c")), ("args", Array([Text("a"), Text("b")])), ("pty", Boolean(True)), ("timeout", Number("2.5")), ("platforms", Object([("linux", Object([("enabled", Boolean(False))]))]))]
-	ctx = { root: "/r", windows: False, system: "linux", roc: "roc", helper: "h" }
+	ctx = { root: "/r", windows: False, system: "linux", roc: "roc", no_cache: False, helper: "h" }
 	texts_at(case, "args") == ["a", "b"] and texts_at(case, "contains") == [] and flag_at(case, "pty", False) and !flag_at(case, "temp_cwd", False) and number_at(case, "timeout") == Ok("2.5") and text_at(case, "cwd") == Err(Missing) and !case_enabled(ctx, case) and case_enabled({ ..ctx, system: "darwin" }, case)
 }
 
 # An app's stages: the default, then the app's own, then its system's.
 expect {
-	ctx = { root: "/r", windows: False, system: "windows", roc: "roc", helper: "h" }
+	ctx = { root: "/r", windows: False, system: "windows", roc: "roc", no_cache: False, helper: "h" }
 	entry = [("path", Text("a.roc")), ("stages", Object([("test", Boolean(False))])), ("platforms", Object([("windows", Object([("build", Boolean(False))]))]))]
 	defaults = [("check", True), ("test", True), ("build", True)]
 	stage_enabled(ctx, defaults, entry, "check") and !stage_enabled(ctx, defaults, entry, "test") and !stage_enabled(ctx, defaults, entry, "build") and stage_enabled({ ..ctx, system: "linux" }, defaults, entry, "build")
@@ -1604,6 +1617,6 @@ expect {
 
 # Every signal the helper sends has an exit code.
 expect {
-	ctx = { root: "/r", windows: False, system: "darwin", roc: "roc", helper: "h" }
+	ctx = { root: "/r", windows: False, system: "darwin", roc: "roc", no_cache: False, helper: "h" }
 	signal_exit_code(ctx, "SIGUSR1") == Ok(-30) and signal_exit_code({ ..ctx, system: "linux" }, "SIGUSR1") == Ok(-10) and signal_exit_code(ctx, "SIGFOO") == Err(UnknownSignal)
 }

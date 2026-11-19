@@ -196,7 +196,8 @@ jobs:
         run: rustup component add llvm-tools-preview
       - name: Cross-compile every example
         shell: bash
-        run: roc scripts/test.roc --operation build --target "${{ matrix.target }}" --artifact-dir dist/example-binaries
+        # WORKAROUND: roc-lang/roc#13238. On macOS x64 a cached --opt=dev build splits strings on a one-byte delimiter one byte late. Drop --no-cache when fixed.
+        run: roc ${{ matrix.target == 'x64mac' && '--no-cache' || '' }} scripts/test.roc --operation build --target "${{ matrix.target }}" --artifact-dir dist/example-binaries
       - name: Upload example binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -250,7 +251,8 @@ jobs:
       - name: Run native spec cases
         if: matrix.valgrind == false
         shell: bash
-        run: roc scripts/test.roc --operation run --target "${{ matrix.target }}" --artifact-dir dist/example-binaries
+        # WORKAROUND: roc-lang/roc#13238. On macOS x64 a cached --opt=dev build splits strings on a one-byte delimiter one byte late. Drop --no-cache when fixed.
+        run: roc ${{ matrix.target == 'x64mac' && '--no-cache' || '' }} scripts/test.roc --operation run --target "${{ matrix.target }}" --artifact-dir dist/example-binaries
       - name: Run native spec cases with Valgrind
         if: matrix.valgrind
         shell: bash
