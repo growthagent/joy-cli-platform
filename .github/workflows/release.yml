@@ -197,7 +197,8 @@ jobs:
       - name: Test release bundle
         uses: roc-lang/release-package/actions/test-bundle@af2f0cd8662874b825ff3917f4286e793ba18c55
         with:
-          test_bundle_command: roc scripts/test.roc --bundle-path
+          # WORKAROUND: roc-lang/roc#13238. On macOS x64 a cached --opt=dev build splits strings on a one-byte delimiter one byte late. Drop the --no-cache case when fixed.
+          test_bundle_command: ${{ matrix.os == 'macos-15-intel' && 'roc --no-cache scripts/test.roc --bundle-path' || 'roc scripts/test.roc --bundle-path' }}
           bundle_path: .release/test-bundles/${{ matrix.artifact_file }}
           bundle_name: ${{ matrix.bundle_name }}
           release_version: ${{ needs.build.outputs.release_version }}
