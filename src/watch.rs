@@ -396,6 +396,32 @@ struct Root {
     canonical: Option<PathBuf>,
 }
 
+/// A root that is a link may lead somewhere else when it is watched again.
+/// FSEvents names paths below it by where it leads now, so the root's
+/// canonical form follows, for the watch and for the event thread.
+fn follow_root_link(roots: &mut [Root], shared: &Shared, config: &Config, folder: &Path) {
+    let canonical = fs::canonicalize(folder)
+        .ok()
+        .filter(|canonical| canonical != folder);
+    let Some(root) = roots.iter_mut().find(|root| root.absolute == folder) else {
+        return;
+    };
+    if root.canonical == canonical {
+        return;
+    }
+    let before = std::mem::replace(&mut root.canonical, canonical.clone());
+    let tree = config.trees.iter().any(|tree| tree == folder);
+    let mut skipping = shared.skipping();
+    if let Some(before) = before {
+        if let Some(at) = skipping.roots.iter().position(|(path, _)| *path == before) {
+            skipping.roots.remove(at);
+        }
+    }
+    if let Some(canonical) = canonical {
+        skipping.roots.push((canonical, tree));
+    }
+}
+
 pub(crate) struct Watcher {
     config: Config,
     roots: Vec<Root>,
@@ -623,6 +649,7 @@ impl Watcher {
             // differs from what is recorded, and is watched once more.
             if let Some(id) = self.root_ids.get_mut(&folder) {
                 *id = folder_id(&folder);
+                follow_root_link(&mut self.roots, &self.shared, &self.config, &folder);
             }
             match paths.add(&folder, mode) {
                 Ok(()) => {
