@@ -1924,9 +1924,10 @@ mod tests {
         let mut watcher = Watcher::start(tree_config(&root, None)).unwrap();
 
         // As on Windows, where the watch of a folder that is replaced ends
-        // without a word.
+        // without a word. The old folder is moved aside, not removed, so the
+        // new one cannot take its inode and look like the same folder.
         watcher.os.as_mut().unwrap().unwatch(&root).unwrap();
-        fs::remove_dir_all(&root).unwrap();
+        fs::rename(&root, parent.join("old")).unwrap();
         fs::create_dir(&root).unwrap();
         fs::write(root.join("a.roc"), "a, again").unwrap();
         assert_eq!(
