@@ -241,7 +241,7 @@ adapter_source = |basic_cli, zig, fixed| {
 			"main! = |raw_args| {",
 			"\tselected = Env.var_str!(OsStr.from_str(\"ZIG\")) ?? \"\"",
 			"\t${name} = (Path.utf8(selected).read_utf8!() ?? \"0\").trim()",
-			"\targs = raw_args.map(|arg| OsStr.display(OsStr.from_raw(arg))).drop_if(|arg| arg.starts_with(\"--target=\"))",
+			"\targs = raw_args.map(OsStr.display).drop_if(|arg| arg.starts_with(\"--target=\"))",
 			"\toutput = Cmd.new(OsStr.from_str(${Str.inspect(zig)})).args([\"cc\", \"-DVALUE=${defined}\"].concat(args).map(OsStr.from_str)).inherit_stdio().run!() ? |_| Exit(1)",
 			"\tmatch output.status {",
 			"\t\tExited(0) => Ok({})",
