@@ -8,7 +8,9 @@
 //!
 //! A folder that is removed takes its watch with it, so one that comes back
 //! under the same name is scanned and watched anew, and a missing root is
-//! looked for until it is back.
+//! looked for until it is back. No watch tells that its own folder was
+//! replaced on Windows, or that a link leads elsewhere now, so each root is
+//! compared now and then with the folder its watch started on.
 //!
 //! An event only marks a folder to look at again. What is reported comes from
 //! comparing each file's size, time of change and inode, and the contents of
@@ -35,8 +37,8 @@ use core::mem::ManuallyDrop;
 const MAX_SETTLE: Duration = Duration::from_secs(2);
 /// How often a wait checks for a caught signal.
 const TICK: Duration = Duration::from_millis(10);
-/// How often a wait looks for watched folders that are missing.
-const LOOK_FOR_MISSING: Duration = Duration::from_millis(100);
+/// How often a wait looks at the roots, for one that is back or was replaced.
+const LOOK_AT_ROOTS: Duration = Duration::from_millis(100);
 
 pub(crate) struct Config {
     pub(crate) folders: Vec<PathBuf>,
@@ -146,6 +148,61 @@ fn file_id(metadata: &fs::Metadata) -> u64 {
 #[cfg(not(unix))]
 fn file_id(_metadata: &fs::Metadata) -> u64 {
     0
+}
+
+/// What tells a folder from one made later under the same name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct FolderId {
+    volume: u64,
+    index: u64,
+    created: Option<SystemTime>,
+}
+
+/// The folder at `path`, or the one a link there leads to, as a watch
+/// follows the link. `None` when no folder is there.
+#[cfg(unix)]
+fn folder_id(path: &Path) -> Option<FolderId> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(path).ok()?;
+    metadata.is_dir().then(|| FolderId {
+        volume: metadata.dev(),
+        index: metadata.ino(),
+        created: metadata.created().ok(),
+    })
+}
+
+#[cfg(windows)]
+fn folder_id(path: &Path) -> Option<FolderId> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+    };
+    // Asking for no access is enough to read what the folder is, and the
+    // flag is what lets a folder be opened.
+    let folder = fs::OpenOptions::new()
+        .access_mode(0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
+    let metadata = folder.metadata().ok()?;
+    if !metadata.is_dir() {
+        return None;
+    }
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { core::mem::zeroed() };
+    if unsafe { GetFileInformationByHandle(folder.as_raw_handle(), &mut information) } == 0 {
+        return None;
+    }
+    Some(FolderId {
+        volume: u64::from(information.dwVolumeSerialNumber),
+        index: (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow),
+        created: metadata.created().ok(),
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn folder_id(_path: &Path) -> Option<FolderId> {
+    None
 }
 
 /// A hash of a regular file's contents, or `None` for anything else and for
@@ -346,6 +403,11 @@ pub(crate) struct Watcher {
     /// Folders the operating system is watching right now, and whether each
     /// watch is recursive.
     watched: BTreeMap<PathBuf, bool>,
+    /// The folder each root was when its watch started, or `None` when that
+    /// could not be told.
+    root_ids: BTreeMap<PathBuf, Option<FolderId>>,
+    /// When a wait next looks at the roots.
+    next_root_look: Instant,
     shared: Arc<Shared>,
     snapshot: Snapshot,
     /// Changes found by `set`, reported by the next `next`.
@@ -368,6 +430,8 @@ impl Watcher {
             roots: Vec::new(),
             os: None,
             watched: BTreeMap::new(),
+            root_ids: BTreeMap::new(),
+            next_root_look: Instant::now(),
             shared: Arc::new(Shared::default()),
             snapshot: Snapshot::default(),
             carried: Vec::new(),
@@ -439,9 +503,19 @@ impl Watcher {
                     .map_err(from_notify)?,
             );
         }
+        // A root whose watch stays keeps the folder that watch started on,
+        // and a watch that starts records its own.
+        let roots_before = std::mem::take(&mut self.root_ids);
+        self.root_ids = config
+            .folders
+            .iter()
+            .chain(&config.trees)
+            .map(|root| (root.clone(), roots_before.get(root).copied().flatten()))
+            .collect();
         let fresh = match self.watch_and_scan(&config) {
             Ok(fresh) => fresh,
             Err(error) => {
+                self.root_ids = roots_before;
                 if created {
                     self.os = None;
                     self.watched.clear();
@@ -545,6 +619,11 @@ impl Watcher {
             } else {
                 notify::RecursiveMode::NonRecursive
             };
+            // Told before the watch starts, so a root replaced in between
+            // differs from what is recorded, and is watched once more.
+            if let Some(id) = self.root_ids.get_mut(&folder) {
+                *id = folder_id(&folder);
+            }
             match paths.add(&folder, mode) {
                 Ok(()) => {
                     self.watched.insert(folder, recursive);
@@ -609,10 +688,10 @@ impl Watcher {
         quiet: Duration,
         found: &mut Vec<Change>,
     ) -> Result<bool, Error> {
-        // A watched folder that is gone sends no events when it comes back,
-        // so it is looked for now and then.
+        // A root that is gone sends no events when it comes back, and one
+        // that was replaced may send none at all, so the roots are looked at
+        // now and then.
         let missing = self.missing_roots();
-        let mut look_again = Instant::now() + LOOK_FOR_MISSING;
         let shared = Arc::clone(&self.shared);
         let mut pending = shared.lock();
         while pending.dirty.is_empty() && pending.replaced.is_empty() && !pending.rescan {
@@ -620,10 +699,11 @@ impl Watcher {
                 return Err(Error::Interrupted);
             }
             let now = Instant::now();
-            if !missing.is_empty() && now >= look_again {
-                look_again = now + LOOK_FOR_MISSING;
-                for root in missing.iter().filter(|root| root.is_dir()) {
-                    pending.replaced.insert(root.clone());
+            if now >= self.next_root_look {
+                self.next_root_look = now + LOOK_AT_ROOTS;
+                let back = missing.iter().filter(|root| root.is_dir()).cloned();
+                for root in back.chain(self.replaced_roots()) {
+                    pending.replaced.insert(root);
                     pending.last_event = Some(now);
                 }
                 continue;
@@ -693,10 +773,12 @@ impl Watcher {
             found.extend(self.rescan_all()?);
             return Ok(());
         }
-        let replaced = replaced
+        let mut replaced: BTreeSet<PathBuf> = replaced
             .into_iter()
             .map(|path| self.to_internal(path))
             .collect();
+        // The events may be the last from a root that was replaced since.
+        replaced.extend(self.replaced_roots());
         let dirty = dirty
             .into_iter()
             .map(|path| self.to_internal(path))
@@ -814,6 +896,18 @@ impl Watcher {
             .chain(&self.config.trees)
             .filter(|root| !self.snapshot.folders.contains_key(*root))
             .cloned()
+            .collect()
+    }
+
+    /// Watched roots that are not the folder their watch started on, or are
+    /// gone. Such a watch reports nothing more.
+    fn replaced_roots(&self) -> Vec<PathBuf> {
+        self.root_ids
+            .iter()
+            .filter(|(root, id)| {
+                self.watched.contains_key(*root) && id.is_some() && folder_id(root) != **id
+            })
+            .map(|(root, _)| root.clone())
             .collect()
     }
 
@@ -1780,6 +1874,62 @@ mod tests {
         assert_eq!(first, [("a.roc".to_owned(), ChangeKind::Modified)]);
 
         fs::write(root.join("a.roc"), "a, edited later").unwrap();
+        assert_eq!(
+            kinds(collect(&mut watcher, 1), &root),
+            [("a.roc".to_owned(), ChangeKind::Modified)]
+        );
+    }
+
+    #[test]
+    fn a_root_replaced_without_an_event_is_watched_again() {
+        let parent = tempfile::tempdir().unwrap();
+        let parent = parent.path().canonicalize().unwrap();
+        let root = parent.join("client");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.roc"), "a").unwrap();
+        let mut watcher = Watcher::start(tree_config(&root, None)).unwrap();
+
+        // As on Windows, where the watch of a folder that is replaced ends
+        // without a word.
+        watcher.os.as_mut().unwrap().unwatch(&root).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.roc"), "a, again").unwrap();
+        assert_eq!(
+            kinds(collect(&mut watcher, 1), &root),
+            [("a.roc".to_owned(), ChangeKind::Modified)]
+        );
+
+        fs::write(root.join("a.roc"), "a, edited later").unwrap();
+        assert_eq!(
+            kinds(collect(&mut watcher, 1), &root),
+            [("a.roc".to_owned(), ChangeKind::Modified)]
+        );
+    }
+
+    #[test]
+    fn an_empty_root_removed_without_an_event_is_watched_when_it_is_back() {
+        let parent = tempfile::tempdir().unwrap();
+        let parent = parent.path().canonicalize().unwrap();
+        let root = parent.join("client");
+        fs::create_dir(&root).unwrap();
+        let mut watcher = Watcher::start(tree_config(&root, None)).unwrap();
+
+        watcher.os.as_mut().unwrap().unwatch(&root).unwrap();
+        fs::remove_dir(&root).unwrap();
+        assert!(watcher
+            .next(Duration::from_millis(300), Duration::from_millis(20))
+            .unwrap()
+            .is_empty());
+
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.roc"), "a").unwrap();
+        assert_eq!(
+            kinds(collect(&mut watcher, 1), &root),
+            [("a.roc".to_owned(), ChangeKind::Created)]
+        );
+
+        fs::write(root.join("a.roc"), "a, edited").unwrap();
         assert_eq!(
             kinds(collect(&mut watcher, 1), &root),
             [("a.roc".to_owned(), ChangeKind::Modified)]
