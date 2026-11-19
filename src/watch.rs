@@ -1034,7 +1034,14 @@ impl Watcher {
                 return Err(Error::Interrupted);
             }
             let mut fresh = Snapshot::default();
-            let exists = fs::symlink_metadata(&folder).is_ok_and(|metadata| metadata.is_dir());
+            // A root may be a link, which its watch and its scan follow. Below
+            // a root a link is a file.
+            let metadata = if self.root_ids.contains_key(&folder) {
+                fs::metadata(&folder)
+            } else {
+                fs::symlink_metadata(&folder)
+            };
+            let exists = metadata.is_ok_and(|metadata| metadata.is_dir());
             if exists {
                 // A folder that could not be read when it was found has no
                 // watch yet. Watch it before scanning, so nothing is missed.
@@ -1936,6 +1943,34 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_root_that_leads_elsewhere_now_is_watched_there() {
+        let parent = tempfile::tempdir().unwrap();
+        let parent = parent.path().canonicalize().unwrap();
+        fs::create_dir(parent.join("one")).unwrap();
+        fs::create_dir(parent.join("two")).unwrap();
+        fs::write(parent.join("one/a.roc"), "a").unwrap();
+        fs::write(parent.join("two/a.roc"), "a, the other").unwrap();
+        let root = parent.join("link");
+        std::os::unix::fs::symlink(parent.join("one"), &root).unwrap();
+        let mut watcher = Watcher::start(tree_config(&root, None)).unwrap();
+
+        // Renamed over the old link, so the root is never missing.
+        std::os::unix::fs::symlink(parent.join("two"), parent.join("next")).unwrap();
+        fs::rename(parent.join("next"), &root).unwrap();
+        assert_eq!(
+            kinds(collect(&mut watcher, 1), &root),
+            [("a.roc".to_owned(), ChangeKind::Modified)]
+        );
+
+        fs::write(parent.join("two/a.roc"), "a, edited later").unwrap();
+        assert_eq!(
+            kinds(collect(&mut watcher, 1), &root),
+            [("a.roc".to_owned(), ChangeKind::Modified)]
+        );
+    }
+
     #[test]
     fn an_edit_that_keeps_the_size_and_the_time_is_seen() {
         let root = tempfile::tempdir().unwrap();
@@ -1984,10 +2019,12 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let parent = parent.path().canonicalize().unwrap();
         fs::create_dir(parent.join("real")).unwrap();
+        fs::write(parent.join("real/b.roc"), "b").unwrap();
         std::os::unix::fs::symlink(parent.join("real"), parent.join("link")).unwrap();
         let root = parent.join("link");
         let mut watcher = Watcher::start(tree_config(&root, None)).unwrap();
 
+        // Only the new file is reported, not the one there from the start.
         fs::write(root.join("a.roc"), "a").unwrap();
         assert_eq!(
             kinds(collect(&mut watcher, 1), &root),
