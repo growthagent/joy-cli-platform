@@ -43,7 +43,7 @@ jobs:
 
       - name: Install Roc
         if: github.event_name == 'workflow_dispatch'
-        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        uses: niclas-ahden/roc-builds@fdf38ad0cff86f9fccc43051012726998dd53772 # v1
 
       - name: Validate release request
         id: validate
@@ -83,7 +83,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Roc
-        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        uses: niclas-ahden/roc-builds@fdf38ad0cff86f9fccc43051012726998dd53772 # v1
 
       - name: Install Zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f
@@ -180,7 +180,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Roc
-        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        uses: niclas-ahden/roc-builds@fdf38ad0cff86f9fccc43051012726998dd53772 # v1
 
       - name: Install Rust
         shell: bash
@@ -214,7 +214,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Roc
-        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        uses: niclas-ahden/roc-builds@fdf38ad0cff86f9fccc43051012726998dd53772 # v1
 
       - name: Create docs staging tree
         run: mkdir -p docs-site
@@ -279,7 +279,7 @@ jobs:
           rustup default "${{ needs.rust-version.outputs.version }}"
 
       - name: Install Roc
-        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        uses: niclas-ahden/roc-builds@fdf38ad0cff86f9fccc43051012726998dd53772 # v1
 
       - name: Prepare Cargo package version
         env:
@@ -388,7 +388,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Roc
-        uses: niclas-ahden/roc-builds@7aeb0a90f91897cf074e3b0e6bac6211734c9abe # v1
+        uses: niclas-ahden/roc-builds@fdf38ad0cff86f9fccc43051012726998dd53772 # v1
 
       - name: Download release metadata
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
