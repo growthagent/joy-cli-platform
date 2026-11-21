@@ -38,7 +38,7 @@ jobs:
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Install Roc
-        uses: niclas-ahden/roc-builds@065946819a3c3aafefd5974b9109adeecbad8106 # v1
+        uses: niclas-ahden/roc-builds@7b5abaf4643fdfe086e8dcd2c9d6b0aba461083b # v1
 
       - name: Restore released docs
         env:
