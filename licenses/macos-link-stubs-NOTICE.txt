@@ -13,6 +13,14 @@ lists them for the host and every example and test app on arm64 and x86_64
 macOS, and nothing else. They are under this platform's license (UPL-1.0, see
 LICENSE).
 
-When the host or an app starts to import another symbol from one of them, the
-macOS link fails and names it. Add it to that stub's symbol list, under the
-targets that import it.
+`roc app.roc` links a runtime of roc's own beside the host, which `roc build`
+does not: libroc_machine_code_shim.a with --opt=dev and
+libroc_interpreter_shim.a with --opt=interpreter. libSystem.tbd lists what
+those two import as well, as `nm -u` lists it for the archives the pinned roc
+links on each architecture.
+
+When the host, an app or one of roc's runtimes starts to import another symbol
+from one of them, the macOS link fails and names it. Add it to that stub's
+symbol list, under the targets that import it. scripts/test.roc runs an app
+from its source with both runtimes, so a newer roc that imports more fails
+there.

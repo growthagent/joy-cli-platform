@@ -48,16 +48,16 @@
     },
     {
       "files": {
-        "platform/targets/macos-sysroot/usr/lib/libSystem.tbd": "0ee8bf0cb026c7c4141180d34db617f9605fc0a115d0bba1334698594f506f4d",
+        "platform/targets/macos-sysroot/usr/lib/libSystem.tbd": "f99ef431705f2725e77d8586944d3932f860e9eec5329fea7ac0f102cbf27bbe",
         "platform/targets/macos-sysroot/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd": "0802ddefd520ca1b50b299da85f8e9868030ee8e213312ba0b6e1ffbceb7f492",
         "platform/targets/macos-sysroot/System/Library/Frameworks/CoreServices.framework/CoreServices.tbd": "fdebf9387f306d7fa6b171c402d63cdc0dd0dc239c6afd8d14c18098f83ecf33"
       },
       "license": "UPL-1.0",
       "license_file": "macos-link-stubs-NOTICE.txt",
       "name": "macOS link stubs",
-      "origin": "written for this platform, listing only the libSystem, CoreFoundation and CoreServices symbols the macOS host and its apps import",
+      "origin": "written for this platform, listing only the libSystem, CoreFoundation and CoreServices symbols the macOS host, its apps and the runtimes roc links for `roc app.roc` import",
       "upstream": "https://github.com/growthagent/joy-cli-platform/blob/main/LICENSE",
-      "version": "2"
+      "version": "3"
     }
   ]
 }

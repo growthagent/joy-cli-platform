@@ -67,9 +67,9 @@ against `licenses/native-inputs.json`, which records where each one came from.
 | `platform/targets/arm64musl/libc.a` | musl libc 1.2.6 | `29422237a038f967575982f49520716d56220099f2d397704d94d024bf17b21e` |
 | `platform/targets/arm64musl/rcrt1.o` | musl libc 1.2.6 | `bcc4ddca200e6a8a0069a3f4a3066414f150c55f68802d973506ef440cf36c31` |
 | `platform/targets/arm64musl/libunwind.a` | LLVM libunwind Zig 0.17.0 bundled LLVM libunwind | `788ae40461cba9a5a425ac22bba9440306fe041ee5cfd3789ddee604156e83a3` |
-| `platform/targets/macos-sysroot/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd` | macOS link stubs 2 | `0802ddefd520ca1b50b299da85f8e9868030ee8e213312ba0b6e1ffbceb7f492` |
-| `platform/targets/macos-sysroot/System/Library/Frameworks/CoreServices.framework/CoreServices.tbd` | macOS link stubs 2 | `fdebf9387f306d7fa6b171c402d63cdc0dd0dc239c6afd8d14c18098f83ecf33` |
-| `platform/targets/macos-sysroot/usr/lib/libSystem.tbd` | macOS link stubs 2 | `0ee8bf0cb026c7c4141180d34db617f9605fc0a115d0bba1334698594f506f4d` |
+| `platform/targets/macos-sysroot/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd` | macOS link stubs 3 | `0802ddefd520ca1b50b299da85f8e9868030ee8e213312ba0b6e1ffbceb7f492` |
+| `platform/targets/macos-sysroot/System/Library/Frameworks/CoreServices.framework/CoreServices.tbd` | macOS link stubs 3 | `fdebf9387f306d7fa6b171c402d63cdc0dd0dc239c6afd8d14c18098f83ecf33` |
+| `platform/targets/macos-sysroot/usr/lib/libSystem.tbd` | macOS link stubs 3 | `f99ef431705f2725e77d8586944d3932f860e9eec5329fea7ac0f102cbf27bbe` |
 
 ### musl libc
 
@@ -597,7 +597,7 @@ THE SOFTWARE.
 
 ### macOS link stubs
 
-- 2 (UPL-1.0): written for this platform, listing only the libSystem, CoreFoundation and CoreServices symbols the macOS host and its apps import.
+- 3 (UPL-1.0): written for this platform, listing only the libSystem, CoreFoundation and CoreServices symbols the macOS host, its apps and the runtimes roc links for `roc app.roc` import.
   License: https://github.com/growthagent/joy-cli-platform/blob/main/LICENSE
 
 ```text
@@ -616,9 +616,17 @@ lists them for the host and every example and test app on arm64 and x86_64
 macOS, and nothing else. They are under this platform's license (UPL-1.0, see
 LICENSE).
 
-When the host or an app starts to import another symbol from one of them, the
-macOS link fails and names it. Add it to that stub's symbol list, under the
-targets that import it.
+`roc app.roc` links a runtime of roc's own beside the host, which `roc build`
+does not: libroc_machine_code_shim.a with --opt=dev and
+libroc_interpreter_shim.a with --opt=interpreter. libSystem.tbd lists what
+those two import as well, as `nm -u` lists it for the archives the pinned roc
+links on each architecture.
+
+When the host, an app or one of roc's runtimes starts to import another symbol
+from one of them, the macOS link fails and names it. Add it to that stub's
+symbol list, under the targets that import it. scripts/test.roc runs an app
+from its source with both runtimes, so a newer roc that imports more fails
+there.
 ```
 
 ## Rust standard library
