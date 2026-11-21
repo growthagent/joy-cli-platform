@@ -38,8 +38,9 @@ import Targets
 ## serves the bundle over HTTP while the suite runs. The suite points every
 ## app at the bundle and puts the apps back afterwards. `validate` runs the
 ## Rust and platform tests and checks, formats and tests every app, `build`
-## builds every app into the artifact folder with a manifest, and `run` runs
-## the cases of every app from the artifact folder on this machine.
+## builds every app into the artifact folder with a manifest and, for this
+## machine's target, runs one from its source as `roc app.roc` does, and `run`
+## runs the cases of every app from the artifact folder on this machine.
 ##
 ## Run it from the repository or a folder in it. It builds tools/test-helper
 ## with cargo, which runs apps on a terminal of their own and serves the
@@ -819,6 +820,9 @@ suite_steps! = |ctx, bundle_url, suite, spec, original_sources_sha256| {
 		if suite.operations.contains("build") {
 			binaries = run_stage!(ctx, "build", spec, [], suite)?
 			write_manifest!(ctx, suite, binaries, original_sources_sha256)?
+			if suite.target == Targets.native!()? {
+				run_from_source!(ctx)?
+			}
 			binaries
 		} else {
 			[]
@@ -826,6 +830,54 @@ suite_steps! = |ctx, bundle_url, suite, spec, original_sources_sha256| {
 	if suite.operations.contains("run") {
 		binaries = if (built.is_empty()) load_artifact_binaries!(ctx, suite.target, suite.artifact_dir, spec)? else built
 		_ = run_stage!(ctx, "run", spec, binaries, suite)?
+	}
+	Ok({})
+}
+
+## The app `run_from_source!` runs, and a line it prints.
+source_run_app : Str
+source_run_app = "examples/hello-world.roc"
+
+source_run_output : Str
+source_run_output = "Hello, World!"
+
+## How `roc` runs an app from its source with a backend. The cache is off, as
+## it would answer with an executable linked earlier.
+source_run_words : Ctx, Str, Str -> List(Str)
+source_run_words = |ctx, opt, source| [ctx.roc, "--opt=${opt}", "--no-cache", "--max-transitive-mb=256", source]
+
+## Runs an app from its source, as `roc app.roc` does, with the backends that
+## link a runtime of roc's own beside the host: dev and interpreter.
+## `roc build` links neither runtime, so only this finds a symbol one of them
+## imports that the platform's macOS link stubs do not list.
+run_from_source! : Ctx => Try({}, Problem)
+run_from_source! = |ctx| {
+	Stdout.line!("\n=== RUN FROM SOURCE ===") ?? {}
+	for opt in ["dev", "interpreter"] {
+		words = source_run_words(ctx, opt, join(ctx, source_run_app))
+		shown = Str.join_with(words, " ")
+		Stdout.line!("+ ${shown}") ?? {}
+		output = Cmd.new(OsStr.from_str(ctx.roc))
+			.args(words.drop_first(1).map(OsStr.from_str))
+			.cwd(Path.utf8(ctx.root))
+			.stdout(Capture)
+			.stderr(MergeWithStdout)
+			.output_limit(NoLimit)
+			.run!()
+			? |err|
+				match err {
+					Interrupted => Interrupted
+					CmdErr(cmd_err) => Failed("${shown}: ${cmd_err.to_str()}")
+				}
+		text = Str.from_utf8_lossy(output.stdout_bytes)
+		Stdout.write!(text) ?? {}
+		match output.status {
+			Exited(0) => {}
+			status => return Err(CommandFailed(shown, Process.exit_code(status)))
+		}
+		if !text.contains(source_run_output) {
+			return Err(Failed("${shown}: did not print \"${source_run_output}\""))
+		}
 	}
 	Ok({})
 }
@@ -1613,6 +1665,13 @@ expect {
 	entry = [("path", Text("a.roc")), ("stages", Object([("test", Boolean(False))])), ("platforms", Object([("windows", Object([("build", Boolean(False))]))]))]
 	defaults = [("check", True), ("test", True), ("build", True)]
 	stage_enabled(ctx, defaults, entry, "check") and !stage_enabled(ctx, defaults, entry, "test") and !stage_enabled(ctx, defaults, entry, "build") and stage_enabled({ ..ctx, system: "linux" }, defaults, entry, "build")
+}
+
+# An app runs from its source with its backend chosen and without the cache,
+# and the options come before the app, whose arguments follow it.
+expect {
+	ctx = { root: "/r", windows: False, system: "darwin", roc: "/bin/roc", no_cache: False, helper: "h" }
+	source_run_words(ctx, "interpreter", "/r/a.roc") == ["/bin/roc", "--opt=interpreter", "--no-cache", "--max-transitive-mb=256", "/r/a.roc"]
 }
 
 # Every signal the helper sends has an exit code.
