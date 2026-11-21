@@ -211,12 +211,6 @@ context! = || {
 	cwd = Files.cwd!()?
 	windows = Process.is_windows!()
 	target = System.target!()
-	# WORKAROUND: roc-lang/roc#13238. On macOS x64 a cached --opt=dev build splits strings on a one-byte delimiter one byte late. Drop intel_mac when fixed.
-	intel_mac =
-		match (target.os(), target.arch()) {
-			(MacOS(_), X64) => True
-			_ => False
-		}
 	system =
 		match target.os() {
 			Windows(_) => "windows"
@@ -227,7 +221,7 @@ context! = || {
 	roc = env_text!("ROC") ?? "roc"
 	exe = if (windows) ".exe" else ""
 	helper = native_join(windows, root, "tools/test-helper/target/release/test-helper${exe}")
-	Ok({ root, windows, system, roc, no_cache: windows or intel_mac, helper })
+	Ok({ root, windows, system, roc, no_cache: windows, helper })
 }
 
 env_text! : Str => Try(Str, [Unset])
@@ -305,7 +299,7 @@ script = |ctx, name| [ctx.roc].concat(no_cache_args(ctx)).append(join(ctx, "scri
 ## Windows checks, tests and builds go without the compiler cache. basic-cli
 ## has done so since its first Windows CI (its commit 5c21791), with no reason
 ## recorded, and scripts/HostBuild.roc builds the compiler adapter the same
-## way. macOS x64 goes without it for roc-lang/roc#13238.
+## way.
 no_cache_args : Ctx -> List(Str)
 no_cache_args = |ctx| if (ctx.no_cache) ["--no-cache"] else []
 
