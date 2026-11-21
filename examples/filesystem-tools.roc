@@ -1,6 +1,6 @@
 ## Prepare a distributable directory without changing its source files.
 ## Usage: roc filesystem-tools.roc path/to/site path/to/new-release
-app [main!] { pf: platform "https://github.com/growthagent/joy-cli-platform/releases/download/0.1.0-rc1/71QJT9cSt2W6XM4ovm4w6A2PAnq9uUpzn7jxT8PiTGqX.tar.zst" }
+app [main!] { pf: platform "https://github.com/growthagent/joy-cli-platform/releases/download/0.1.0-rc4/EQHYpAo8oDkf35M2DAA2nWx6Guyj5aqRf24yLk5JsSVt.tar.zst" }
 
 import pf.Env
 import pf.OsStr
