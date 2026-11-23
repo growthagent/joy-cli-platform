@@ -557,8 +557,9 @@ render_natives = |natives| {
 	[
 		"## Prebuilt native inputs",
 		"",
-		"These inputs are committed as they came. Their hashes are checked",
-		"against `licenses/native-inputs.json`, which records where each one came from.",
+		"These inputs are committed as they came, except for the debug data stripped",
+		"out of the libraries. Their hashes are checked against",
+		"`licenses/native-inputs.json`, which records where each one came from.",
 		"",
 		"| File | Component | SHA-256 |",
 		"| --- | --- | --- |",

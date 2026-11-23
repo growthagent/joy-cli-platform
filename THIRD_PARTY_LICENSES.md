@@ -56,26 +56,27 @@ the platform.
 
 ## Prebuilt native inputs
 
-These inputs are committed as they came. Their hashes are checked
-against `licenses/native-inputs.json`, which records where each one came from.
+These inputs are committed as they came, except for the debug data stripped
+out of the libraries. Their hashes are checked against
+`licenses/native-inputs.json`, which records where each one came from.
 
 | File | Component | SHA-256 |
 | --- | --- | --- |
-| `platform/targets/x64musl/libc.a` | musl libc 1.2.6 | `0575ab9542e6faa7f09271478a6b257e6f44334d9c8cd605d94453e52d6f3711` |
+| `platform/targets/x64musl/libc.a` | musl libc 1.2.6 | `6838ac379330f2e304bef618dbad6962570660b91e9b92f3d9c7fd20971c6181` |
 | `platform/targets/x64musl/rcrt1.o` | musl libc 1.2.6 | `4594f82520509e2abdae76fedb2eb07887c1e1068f3b8fc167892e08706ea7e8` |
-| `platform/targets/x64musl/libunwind.a` | LLVM libunwind Zig 0.17.0 bundled LLVM libunwind | `99bb43428246200d61e7b62c99134cdb4b9712b130db14cf107d889be2200bed` |
-| `platform/targets/arm64musl/libc.a` | musl libc 1.2.6 | `29422237a038f967575982f49520716d56220099f2d397704d94d024bf17b21e` |
+| `platform/targets/x64musl/libunwind.a` | LLVM libunwind Zig 0.17.0 bundled LLVM libunwind | `1e6926698a03b23725b9d79719117a6fd7329afc4f6fd9a6776d022271cc2b09` |
+| `platform/targets/arm64musl/libc.a` | musl libc 1.2.6 | `0db68298602403915ac1fd459646910489c325556ce9141dd03f61bad012a435` |
 | `platform/targets/arm64musl/rcrt1.o` | musl libc 1.2.6 | `bcc4ddca200e6a8a0069a3f4a3066414f150c55f68802d973506ef440cf36c31` |
-| `platform/targets/arm64musl/libunwind.a` | LLVM libunwind Zig 0.17.0 bundled LLVM libunwind | `788ae40461cba9a5a425ac22bba9440306fe041ee5cfd3789ddee604156e83a3` |
+| `platform/targets/arm64musl/libunwind.a` | LLVM libunwind Zig 0.17.0 bundled LLVM libunwind | `454ee24651a9d63f1cc040a5748b5cb809561d824b7a3b8c33e4e70ad2c541cb` |
 | `platform/targets/macos-sysroot/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd` | macOS link stubs 3 | `0802ddefd520ca1b50b299da85f8e9868030ee8e213312ba0b6e1ffbceb7f492` |
 | `platform/targets/macos-sysroot/System/Library/Frameworks/CoreServices.framework/CoreServices.tbd` | macOS link stubs 3 | `fdebf9387f306d7fa6b171c402d63cdc0dd0dc239c6afd8d14c18098f83ecf33` |
 | `platform/targets/macos-sysroot/usr/lib/libSystem.tbd` | macOS link stubs 3 | `f99ef431705f2725e77d8586944d3932f860e9eec5329fea7ac0f102cbf27bbe` |
 
 ### musl libc
 
-- 1.2.6 (MIT): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/x64musl-36af1c9d069a4c8e270bae59fff49aacdae30aa6d1ab402e20c02e359c70f7ce.tar.gz.
+- 1.2.6 (MIT): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/x64musl-36af1c9d069a4c8e270bae59fff49aacdae30aa6d1ab402e20c02e359c70f7ce.tar.gz, with its debug data stripped by `llvm-strip --strip-debug`.
   License: https://musl.libc.org/releases/musl-1.2.6.tar.gz
-- 1.2.6 (MIT): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/arm64musl-ef2f4332bee02ca5aeaab1eed455a18f738ca6da20fa8d7a649aae24c05818cc.tar.gz.
+- 1.2.6 (MIT): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/arm64musl-ef2f4332bee02ca5aeaab1eed455a18f738ca6da20fa8d7a649aae24c05818cc.tar.gz, with its debug data stripped by `llvm-strip --strip-debug`.
   License: https://musl.libc.org/releases/musl-1.2.6.tar.gz
 
 ```text
@@ -276,9 +277,9 @@ obstacle to adoption, that text has been removed.
 
 ### LLVM libunwind
 
-- Zig 0.17.0 bundled LLVM libunwind (Apache-2.0 WITH LLVM-exception): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/x64musl-36af1c9d069a4c8e270bae59fff49aacdae30aa6d1ab402e20c02e359c70f7ce.tar.gz.
+- Zig 0.17.0 bundled LLVM libunwind (Apache-2.0 WITH LLVM-exception): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/x64musl-36af1c9d069a4c8e270bae59fff49aacdae30aa6d1ab402e20c02e359c70f7ce.tar.gz, with its debug data stripped by `llvm-strip --strip-debug`.
   License: https://ziglang.org/download/0.17.0/
-- Zig 0.17.0 bundled LLVM libunwind (Apache-2.0 WITH LLVM-exception): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/arm64musl-ef2f4332bee02ca5aeaab1eed455a18f738ca6da20fa8d7a649aae24c05818cc.tar.gz.
+- Zig 0.17.0 bundled LLVM libunwind (Apache-2.0 WITH LLVM-exception): https://github.com/roc-lang/basic-cli/releases/download/linker-inputs-548c70b9bde20eceee81ddbfd3a16fbbf178ec262db362980e65eda3f6881521/arm64musl-ef2f4332bee02ca5aeaab1eed455a18f738ca6da20fa8d7a649aae24c05818cc.tar.gz, with its debug data stripped by `llvm-strip --strip-debug`.
   License: https://ziglang.org/download/0.17.0/
 
 ```text
