@@ -1,8 +1,8 @@
 {
-  "version": "0.1.0-rc4",
-  "compiler": "22e3718d45380cb1cd36df3a8fc3f2b6a49c703b",
-  "url": "https://github.com/growthagent/joy-cli-platform/releases/download/0.1.0-rc4/EQHYpAo8oDkf35M2DAA2nWx6Guyj5aqRf24yLk5JsSVt.tar.zst",
-  "hash": "sha256-NPpUcXKTGZ655COs9MIBbuYl59BEaRXds4KYtRS2uD8=",
+  "version": "0.1.0-rc5",
+  "compiler": "15177e91f62cafddf5336c455e00e9f05427ac16",
+  "url": "https://github.com/growthagent/joy-cli-platform/releases/download/0.1.0-rc5/EakfgTL6eAM3YKeEJBPmas6obyBSESSaRRXXDxP5ibnS.tar.zst",
+  "hash": "sha256-uaZB4NIl8r14RzylVeWEHUzWloVHfCZzdFA6UulK4tc=",
   "dependencies": {
     "http": {
       "url": "https://github.com/roc-lang/http/releases/download/2.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
