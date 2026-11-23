@@ -191,9 +191,6 @@ jobs:
         run: |
           rustup toolchain install "${{ needs.rust-version.outputs.version }}" --profile minimal --target ${{ matrix.rust_target }} --component rust-docs,llvm-tools-preview
           rustup default "${{ needs.rust-version.outputs.version }}"
-      - name: Install LLVM tools for Linux host stripping
-        if: endsWith(matrix.target, 'musl')
-        run: rustup component add llvm-tools-preview
       - name: Cross-compile every example
         shell: bash
         run: roc scripts/test.roc --operation build --target "${{ matrix.target }}" --artifact-dir dist/example-binaries

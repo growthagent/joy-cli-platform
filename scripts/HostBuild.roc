@@ -122,16 +122,26 @@ HostBuild := [].{
 		}
 	}
 
-	strip_linux_host! : Str => Try({}, [Failed(Str), CommandFailed(Str, I32)])
-	strip_linux_host! = |target_name| {
-		if !target_name.ends_with("musl") {
-			return Ok({})
-		}
+	## Strips the debug data out of a macOS or Linux host. Rust's standard
+	## library brings it along, and `strip = "debuginfo"` leaves it in a
+	## static library.
+	strip_host! : Str => Try({}, [Failed(Str), CommandFailed(Str, I32)])
+	strip_host! = |target_name| {
+		mode =
+			if target_name.ends_with("musl") {
+				# ELF's strip-unneeded mode keeps every symbol a relocation
+				# refers to, and drops debug data and unused symbols.
+				"--strip-unneeded"
+			} else if target_name.ends_with("mac") {
+				# Mach-O only loses its debug data, as the linker needs the
+				# rest of a static library's symbols.
+				"--strip-debug"
+			} else {
+				return Ok({})
+			}
 		path = "platform/targets/${target_name}/libhost.a"
 		before = Files.size!(path)
-		# ELF's strip-unneeded mode keeps every symbol a relocation refers to,
-		# and drops debug data and unused symbols.
-		Process.run!([HostBuild.find_llvm_strip!()?, "--strip-unneeded", path], [])?
+		Process.run!([HostBuild.find_llvm_strip!()?, mode, path], [])?
 		after = Files.size!(path)
 		Stdout.line!("Stripped ${target_name} libhost.a: ${before.to_str()} -> ${after.to_str()} bytes") ?? {}
 		Ok({})
@@ -195,7 +205,7 @@ HostBuild := [].{
 		qualifier = if (native) "native" else rust_target
 		Stdout.line!("Building for ${target_name} (${qualifier})...") ?? {}
 		HostBuild.copy_unix_host!(target_name, rust_target, native)?
-		HostBuild.strip_linux_host!(target_name)
+		HostBuild.strip_host!(target_name)
 	}
 
 	## The name the adapter is built under for a compiler and adapter: it
